@@ -1,0 +1,16 @@
+{
+    "name": "TestRunnerCli",
+    "rootNamespace": "TestRunnerCli",
+    "references": ["Unity.Pipeline", "Unity.Pipeline.Editor", "UnityEditor.TestRunner", "Unity.Nuget.Newtonsoft-Json"],
+    "includePlatforms": ["Editor"],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": ["TESTRUNNER_CLI_AVAILABLE"],
+    "versionDefines": [
+        { "name": "com.unity.pipeline", "expression": "", "define": "TESTRUNNER_CLI_AVAILABLE" }
+    ],
+    "noEngineReferences": false
+}
