@@ -1,0 +1,14 @@
+{
+  "name": "unity-cli-test-runner-dev",
+  "description": "Marketplace for the unity-cli-test-runner plugin",
+  "owner": { "name": "WarlockReport" },
+  "plugins": [
+    {
+      "name": "unity-cli-test-runner",
+      "description": "Unity CLI（unity cmd）経由でEditMode/PlayModeテストを絞り込み実行するClaude Codeスキル＋専用エージェント",
+      "version": "0.1.0",
+      "source": "./",
+      "author": { "name": "WarlockReport" }
+    }
+  ]
+}
