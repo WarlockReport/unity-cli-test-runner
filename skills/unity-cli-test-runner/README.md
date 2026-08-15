@@ -66,7 +66,7 @@ staleな結果が返る現象自体は再現しなかった。ただし `scripts
 
 （出典: https://docs.unity3d.com/Packages/com.unity.pipeline@0.5/changelog/CHANGELOG.html）
 
-本プロジェクトは `Packages/manifest.json` で `com.unity.pipeline: 0.5.0-exp.1` を採用済みであり、
+検証に使用した環境では `Packages/manifest.json` で `com.unity.pipeline: 0.5.0-exp.1` を採用済みであり、
 スキルの実地検証でも例外が再現しないことを確認した。これに伴い、SKILL.md の「既知の罠」・
 ステップ5にあった例外累積確認のアクションは削除した（経緯としてこの節に残す）。
 
@@ -110,13 +110,14 @@ SKILL.mdには記載がなく、対処法として明文化する価値があり
 
 以下の3箇所に、委譲の主体を明示する形で修正を反映した:
 
-- `.claude/rules/dev-workflow.md`（新設セクション「サブエージェント委任時のテスト実行方針」） —
-  spec/plan作成時に必ず読まれるrulesファイルへ恒久方針として明記。実装サブエージェントはテストを
+- 利用側プロジェクトの開発フロー規約（spec/plan作成時に必ず読まれるrulesファイル）へ、
+  「サブエージェント委任時のテスト実行方針」として恒久方針を明記。実装サブエージェントはテストを
   実行せず、コントローラーへ差し戻す。再開はSendMessageで既存の実装サブエージェントのコンテキスト
   を保持したまま行う
-- `.claude/skills/unity-cli-test-runner/SKILL.md` の「禁止事項」 — 実装サブエージェントが
-  タスク遂行中にこの状況に迷い込んだ場合の行動（自分で呼び出さず報告してターンを終える）を明記
-- `.claude/agents/unity-test-runner.md` — 「コントローラー本体からの明示的なディスパッチでのみ
+- `SKILL.md`（このリポジトリでは `skills/unity-cli-test-runner/SKILL.md`）の「禁止事項」 —
+  実装サブエージェントがタスク遂行中にこの状況に迷い込んだ場合の行動（自分で呼び出さず報告して
+  ターンを終える）を明記
+- `agents/unity-test-runner.md` — 「コントローラー本体からの明示的なディスパッチでのみ
   使用する」制約の理由（ネストした委任は完了通知の宛先を誤らせる）を追記
 
 Aとして検討した「実装エージェントが直接スキルを利用する」案は採用しなかった。2026-08-02に
@@ -134,7 +135,7 @@ Aとして検討した「実装エージェントが直接スキルを利用す�
 2. Unity CLIの`run_tests`は複数クラスにまたがる完全名の一括実行に対応できない（`--filter_type
    testName`へのカンマ区切りは部分一致ロジックの都合で静かに0件空振りする）→ Unity側に
    `run_tests_batch_editmode`/`run_tests_batch_playmode`というPipelineカスタムコマンドを新設した。
-   実例として`Assets/UGUIBaker/Editor/Cli/`（`bake_ugui_from_json`）を雛形にした
+   実例として、同一プロジェクト内の既存Pipelineカスタムコマンド実装を雛形にした
 3. `unity status`によるエディタ起動チェックが自然文の手順のみだった → `check-editor-ready.sh`として
    スクリプト化した
 
