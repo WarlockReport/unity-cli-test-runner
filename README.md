@@ -3,13 +3,13 @@
 Unity CLI（`unity cmd`、Pipelineサーバー経由で起動中のUnityエディタに接続するCLI）を使って、
 コード修正後のEditMode/PlayModeテストを絞り込み実行するためのClaude Codeプラグイン。
 
-対象Unityプロジェクト側に導入するUnity Editor拡張（UPMパッケージ）と、Claude Code側の
-スキル・専用サブエージェントの2つで構成される。
+対象Unityプロジェクト側に導入するUnity Editor拡張（UPMパッケージ）と、
+Claude Code側のスキル・専用サブエージェントの2つで構成される。
 
 ## 前提条件
 
 - `unity` CLI と `jq` が PATH 上にあること
-- 対象Unityプロジェクトに `com.unity.pipeline` パッケージ（Experimental）が導入済みであること
+- 対象Unityプロジェクトに `com.unity.pipeline` パッケージ（0.5.0-exp.1）が導入済みであること
 
 ## インストール
 
