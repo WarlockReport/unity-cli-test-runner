@@ -1,7 +1,6 @@
 # Unity CLI Test Runner (Unity Package)
 
-`com.unity.pipeline` パッケージ（`unity cmd` CLI経由でUnityエディタを操作するPipelineサーバー）向けに、
-EditMode/PlayModeテストを複数クラスにまたがって一括実行するためのカスタムコマンドを追加するEditor専用パッケージ。
+`com.unity.pipeline` パッケージ向けに、EditMode/PlayModeテストを複数クラスにまたがって一括実行するためのカスタムコマンドを追加するEditor専用パッケージです。
 
 ## 前提条件
 
@@ -10,7 +9,7 @@ EditMode/PlayModeテストを複数クラスにまたがって一括実行する
 
 ## インストール
 
-Unity Editor の Package Manager → `+` → `Add package from git URL...` に以下を入力する。
+Unity Editor の Package Manager → `+` → `Add package from git URL...` に以下を入力します。
 
 ```
 https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity
@@ -25,4 +24,5 @@ https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity
 | `batch_test_status` | `run_tests_batch_playmode` の実行状況をポーリングする |
 | `batch_cancel_tests` | 実行中のPlayModeバッチテストをキャンセルする |
 
-対応するClaude Codeスキル（`skills/unity-cli-test-runner`）と組み合わせて使うことを想定している。単体でも `unity cmd` から直接呼び出せる。
+対応するClaude Codeスキル（`skills/unity-cli-test-runner`）と組み合わせて使うことを想定しています。
+単体で `unity cmd` から直接呼び出すこともできます。

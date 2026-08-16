@@ -1,10 +1,8 @@
 # unity-cli-test-runner
 
-Unity CLI（`unity cmd`、Pipelineサーバー経由で起動中のUnityエディタに接続するCLI）を使って、
-コード修正後のEditMode/PlayModeテストを絞り込み実行するためのClaude Codeプラグイン。
+[Unity CLI](https://docs.unity.com/en-us/unity-cli/unity-cli) と [Unity Pipeline package](https://docs.unity3d.com/Packages/com.unity.pipeline@0.5/manual/index.html) を使用して、コード修正後に指定したテストを実行するための Claude Code プラグインです。
 
-対象Unityプロジェクト側に導入するUnity Editor拡張（UPMパッケージ）と、
-Claude Code側のスキル・専用サブエージェントの2つで構成される。
+対象 Unity プロジェクト側に導入する Unity Editor 拡張（UPMパッケージ）と、Claude Code 側のスキル・専用サブエージェントの 2 つで構成されています。
 
 ## 前提条件
 
@@ -20,11 +18,11 @@ Claude Code側のスキル・専用サブエージェントの2つで構成さ�
 /plugin install unity-cli-test-runner
 ```
 
-スキル `unity-cli-test-runner` と専用サブエージェント `unity-test-runner` が使えるようになる。
+スキル `unity-cli-test-runner` と専用サブエージェント `unity-test-runner` が使えるようになります。
 
 ### 2. Unity側パッケージ
 
-対象Unityプロジェクトの Package Manager → `+` → `Add package from git URL...` に以下を入力する。
+対象Unityプロジェクトの Package Manager → `+` → `Add package from git URL...` に以下を入力します。
 
 ```
 https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity
@@ -40,6 +38,10 @@ skills/            unity-cli-test-runner スキル本体（SKILL.md・スクリ�
 agents/            テスト実行専用サブエージェント定義
 unity/             Unity側UPMパッケージ（Editor拡張）
 ```
+
+## 参考資料
+
+- [The Unity Pipeline package and Unity CLI: Installation guide and walkthrough](https://unity.com/resources/unity-pipeline-cli-technical-walkthrough)
 
 ## ライセンス
 
