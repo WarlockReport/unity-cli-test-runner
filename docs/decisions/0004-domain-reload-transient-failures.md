@@ -32,3 +32,12 @@ SKILL.mdの「コンパイル状態の確定」（`ensure-compile-clean.sh` で�
 
 フィールド名・タイムアウト値の実機未検証事項については
 [ADR-0003](0003-ensure-compile-clean-json-field-names.md) を参照。
+
+### 追記 (2026-08-21) — 上記Decisionは不十分だったことが判明
+
+その後の実機検証で、上記Decisionの前提（「`ensure-compile-clean.sh` を徹底すればよい」）自体が不十分であることが分かった。
+ポーリング中の一時切断1回で即ハング扱いにする過剰検知（本ADRの事例A）に加えて、`recompile_status` が `completed`/`up_to_date` を報告した**直後**に同じ理由（ドメインリロード）でPipelineサーバーが一時的にダウンするケースを観測した。
+つまり `recompile_status: completed` は単独では安全な完了シグナルにならず、`ensure-compile-clean.sh` を徹底して呼んでいても先へ進んでしまう（過小検知）レースが起こりうる。
+
+この2つの問題（過剰検知・過小検知）への具体的な対策は
+[ADR-0007](0007-domain-reload-transient-pipeline-unreachable.md) に切り出した。本ADRの事例A・Bの観測事実そのものは引き続き有効な記録として残すが、対策の実装詳細はADR-0007を参照すること。

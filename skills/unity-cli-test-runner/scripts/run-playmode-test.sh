@@ -38,8 +38,17 @@
 # data.result.success（真偽値）、失敗時のメッセージは data.result.error に入る
 # （トップレベルの .success はCLIコマンドのディスパッチ自体が成功したかを示すのみで、
 # 「テストが実際に実行できたか」は示さない）。
+#
+# 注意: PlayMode突入直後はドメインリロードが発生し、その1〜2秒間 unity cmd が
+# "No Unity Editor instances found with reachable Pipeline servers." で失敗することが
+# 実測で確認されている（_lib.sh参照）。test_statusポーリング中にこれを検知した場合は
+# ハング扱いにせずポーリングを継続する。
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_lib.sh
+source "${SCRIPT_DIR}/_lib.sh"
 
 if [ "$#" -lt 2 ]; then
   echo "使い方: run-playmode-test.sh <filter> <filter_type> [timeout(既定120)] [ポーリング予算秒数(既定90)]" >&2
@@ -92,6 +101,14 @@ status=""
 raw=""
 while [ "$elapsed" -lt "$POLL_BUDGET_SECONDS" ]; do
   if ! raw="$(run_unity_cmd test_status --json)"; then
+    if is_transient_pipeline_unreachable "$raw"; then
+      # PlayMode突入直後のドメインリロードによる一時的な切断とみなし、ハング扱いに
+      # せずポーリングを続行する（経過秒数はbudgetから消費されるため、切断が本当に
+      # 続けば下のbudget超過チェックで通常通りexit 2になる）
+      sleep "$POLL_INTERVAL_SECONDS"
+      elapsed=$((elapsed + POLL_INTERVAL_SECONDS))
+      continue
+    fi
     echo "test_status が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
     exit 2
   fi

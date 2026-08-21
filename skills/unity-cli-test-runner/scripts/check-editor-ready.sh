@@ -22,20 +22,30 @@
 #   1  `unity cmd editor_status` は成功したが、状態が "ready" 以外（生の値を標準出力に出す。
 #      未知の状態値を決め打ちで再試行せず報告する）
 #   2  `unity cmd editor_status` コマンド自体が失敗/タイムアウトした（起動中エディタが見つからない、
-#      または未接続の場合を含む。Unity未起動または未接続）
+#      または未接続の場合を含む。Unity未起動または未接続。ドメインリロード中の一時的な切断は
+#      リトライ予算15秒以内で自動リトライ済みのため、ここに到達した場合は本当に未起動/未接続の
+#      可能性が高い）
 #   3  応答は得られたが、想定した形状(.data.result.status)でパースできなかった（防御的フォールバック。
 #      標準出力の生JSONを確認して手動判断する）
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_lib.sh
+source "${SCRIPT_DIR}/_lib.sh"
+
 PROJECT_PATH="${1:-}"
+CLI_TIMEOUT=30
+ONESHOT_RETRY_BUDGET_SECONDS=15
 
 # `unity cmd` は対象エディタに接続できない場合、非ゼロ終了する。出力（JSON）は得られるので、
 # CLI呼び出し自体の失敗を出力の中身で判定するため、終了コード無視で出力を取得する。
+# ドメインリロード中は一時的にPipelineサーバーが不通になる（_lib.sh参照）ため、
+# その間だけは「未起動」と即断せず有限のリトライ予算内でリトライする。
 if [ -n "$PROJECT_PATH" ]; then
-  raw="$(unity cmd editor_status --project-path "$PROJECT_PATH" --timeout 30 --json 2>/dev/null || true)"
+  raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" editor_status --project-path "$PROJECT_PATH" --json 2>/dev/null || true)"
 else
-  raw="$(unity cmd editor_status --timeout 30 --json 2>/dev/null || true)"
+  raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" editor_status --json 2>/dev/null || true)"
 fi
 
 # 出力が完全に空なら、本当のCLI呼び出し失敗（コマンド自体が実行できない等）

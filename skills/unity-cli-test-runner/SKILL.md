@@ -50,7 +50,7 @@ scripts/check-editor-ready.sh
 | --- | --- | --- |
 | 0 | 起動中エディタが見つかり status が ready | 次のステップ（コンパイル状態の確定）へ進む |
 | 1 | 起動中エディタは見つかったが status が ready 以外 | 標準エラー出力のstatus値をそのまま報告し、「ハング・タイムアウト時の対応」に準じてユーザーに状況確認を依頼する |
-| 2 | 起動中エディタが見つからない、または `unity cmd editor_status` 自体が失敗/タイムアウト | Unityエディタが起動していないか未接続。ユーザーに手動起動を依頼する |
+| 2 | 起動中エディタが見つからない、リトライ予算（15秒）を使い切ってもなお `unity cmd editor_status` が失敗/タイムアウト | Unityエディタが起動していないか未接続。ユーザーに手動起動を依頼する（ドメインリロード中の一時的な切断はスクリプト内部で自動リトライ済みなので、ここに到達した場合は本当に未起動/未接続の可能性が高い） |
 | 3 | 応答は得られたが想定した形式でパースできなかった | 標準出力の生JSONを確認して手動判断する |
 
 ### 1. コンパイル状態の確定
@@ -63,16 +63,27 @@ scripts/check-editor-ready.sh
 scripts/ensure-compile-clean.sh
 ```
 
-このスクリプトは `clear_console → recompile → recompile_status ポーリング → get_console_logs(error)` を
-順に実行し、以下の終了コードを返す（`unity` CLI と `jq` がPATH上にあることが前提）。第1引数で
-ポーリング予算秒数を上書きできる（既定60秒）。
+このスクリプトは `clear_console → recompile → recompile_status ポーリング → editor_status によるドメイン
+リロード完了の安定確認 → get_console_logs(error)` を順に実行し、以下の終了コードを返す（`unity` CLI と
+`jq` がPATH上にあることが前提）。第1引数でポーリング予算秒数を上書きできる（既定60秒。この予算は
+recompile_statusポーリングとeditor_statusによる安定確認の両方に個別適用されるため、全体の最大所要
+時間は指定値の2倍になりうる）。
 
 | 終了コード | 意味 | 対応 |
 | --- | --- | --- |
-| 0 | コンパイル確定・エラー無し | 次のステップ（テスト対象の解決）へ進む |
+| 0 | コンパイル確定・ドメインリロードも完了・エラー無し | 次のステップ（テスト対象の解決）へ進む |
 | 1 | コンパイルエラーを検出（標準出力に詳細） | テスト対象の解決に進まず、エラー内容をそのまま報告して終了する |
-| 2 | 応答なし・ポーリング予算超過（`unity cmd`呼び出し自体の失敗を含む） | 「ハング・タイムアウト時の対応」に従う（盲目的に再試行しない） |
+| 2 | ポーリング予算超過（`unity cmd`呼び出し自体の失敗を含む） | 「ハング・タイムアウト時の対応」に従う（盲目的に再試行しない） |
 | 3 | `get_console_logs` の返り値の形式が想定と異なり判定不能 | 標準出力の生JSONを確認して手動判断する |
+
+**注意（実測済み、既知の罠も参照）**: コンパイル完了直後の1〜2秒間、ドメインリロード（アセンブリの
+再読み込み）によりUnity側のPipelineサーバーが一時的にダウンし、`unity cmd` が
+`No Unity Editor instances found with reachable Pipeline servers.` で失敗することがある。この
+スクリプトは内部でこれを一時的な切断として扱い、`recompile_status` が完了状態を報告した後も
+`editor_status` の `compiling`/`domainReloadInProgress` が2回連続でfalseになるまで `exit 0` にしない。
+これにより「ドメインリロードが終わりきる前にテスト対象の解決へ進んでしまう」誤りと、「一時的な
+切断1回だけでハング扱いにしてしまう」誤りの両方を防いでいる。exit 2 に到達した場合は、budget
+全体を通じて到達不能だったことを意味する（＝一時的な切断のリトライでは済まない状態）。
 
 ### 2. テスト対象の解決
 
@@ -80,7 +91,27 @@ scripts/ensure-compile-clean.sh
 やり直さない）。`list_tests --mode EditMode`/`list_tests --mode PlayMode` は対象リストに必要な
 モードのみ、それぞれ1回ずつ呼べばよい。
 
-- ユーザーから完全名（`FullName`）が明示された場合は、そのまま次へ進む
+`list_tests --mode <Mode> --json` の応答は `.data.result.Tests` が配列で、各要素が
+`{FullName, Mode, Assembly, Categories, Explicit}` を持つ（実地検証済み、2026-08-21。
+`jq -r '.data.result.Tests[] | select(.FullName == "<対象>")'` で特定の `FullName` を検索できる）。
+`Mode` は各要素に個別に入っており、`--mode EditMode` で呼んでも `--mode PlayMode` で呼んでも
+その呼び出しで実際に存在したテストしか返らない点に注意（存在しなければ配列に現れない）。
+
+**呼び出し元（人間の発言・plan文・コントローラーからのディスパッチ文など）が添えた `Mode`
+（EditMode/PlayMode）は、実行前に必ず list_tests の実データで裏取りする参考情報であり、
+確定情報として鵜呑みにしてはならない。** plan文はテストクラスが実際にどちらのアセンブリ／
+基底クラスに属するかを実行時点まで正確に知り得ないため、古い/誤った前提のままModeを
+書いていることがある（これを鵜呑みにしてステップ5へ直行すると、指定Modeでの実行が
+失敗し、正しいModeでの再試行が必要になる）。
+
+- ユーザーから完全名（`FullName`）が明示された場合でも、そのまま次へ進まず、
+  `unity cmd list_tests --mode EditMode --timeout 30` と `unity cmd list_tests --mode PlayMode
+  --timeout 30` の出力から当該 `FullName` に完全一致するレコードを探し、実際の `Mode` を確定する
+  - 該当レコードが見つからない場合: 誤字や存在しないテスト名の可能性として報告し、実行しない
+  - 呼び出し元が添えたModeと実際のModeが食い違う場合: 黙って実際のModeで上書き実行せず、
+    その食い違い（指定Mode／実際のMode）をそのまま報告する。plan文等の記載が古い可能性を示す
+    シグナルなので、実行を止めてユーザー/コントローラーに確認を仰ぐ
+  - 一致した場合（またはそもそもModeが添えられていなかった場合）: 確定したModeでそのまま次へ進む
 - クラス名・アセンブリ名・自然言語で渡された場合は `unity cmd list_tests --mode EditMode --timeout 30` と
   `unity cmd list_tests --mode PlayMode --timeout 30` の出力（`FullName`/`Mode`/`Assembly`/`Categories`を含むJSON）を
   ローカルでgrepし候補を絞り込む。**`Mode`は各テストのJSONに含まれているので推定しない**（旧MCP版の
@@ -233,6 +264,18 @@ Pass/Fail件数を合算したサマリと、失敗があったグループの�
   得た完全一致の `FullName`、またはクラス名をそのまま渡す
 - `--filter_type category` は未検証（検証環境のテストは現状すべて `Categories:["Uncategorized"]`）。
   使う場合は事前に実地確認すること
+- コンパイル完了直後・PlayMode突入直後のドメインリロード中（通常1〜2秒）、`unity cmd` が
+  `No Unity Editor instances found with reachable Pipeline servers.` で失敗することがある
+  （実地検証済み、2026-08-21）。これは**エディタが未起動という意味ではない**——ドメインリロードで
+  Pipelineサーバーが一時的に落ちているだけで、リロード完了とともに自動的に復帰する。
+  `ensure-compile-clean.sh`/`run-playmode-test.sh`/`run-tests-batch-playmode.sh`/
+  `check-editor-ready.sh` は内部でこれを一時的な切断として扱いポーリング・リトライを続ける
+  （`scripts/_lib.sh` の `is_transient_pipeline_unreachable`）ため、スキル利用者が意識する必要は
+  通常ない。ただし、これらのスクリプトを介さず `unity cmd` を直接叩いた際にこのメッセージに
+  遭遇した場合は、「未接続」と即断せず数秒待って再試行すること
+- `recompile_status --json` の `data.result` は `test_status`/`batch_test_status` と同様、JSON文字列
+  として二重エンコードされている（`jq '.data.result | fromjson | .status'` で取り出す）。トップレベルに
+  `.status` が直接あるわけではない点に注意（実地検証済み、2026-08-21）
 
 ## 禁止事項
 
