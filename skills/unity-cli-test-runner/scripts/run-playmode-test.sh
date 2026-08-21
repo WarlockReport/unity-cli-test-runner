@@ -42,7 +42,9 @@
 # 注意: PlayMode突入直後はドメインリロードが発生し、その1〜2秒間 unity cmd が
 # "No Unity Editor instances found with reachable Pipeline servers." で失敗することが
 # 実測で確認されている（_lib.sh参照）。test_statusポーリング中にこれを検知した場合は
-# ハング扱いにせずポーリングを継続する。
+# ハング扱いにせずポーリングを継続する。また、run_tests --async_tests の起動呼び出し
+# 自体がこの瞬断に当たることもあるため、こちらは run_unity_cmd_resilient（有限予算の
+# 単発リトライ）で吸収する（ADR-0009）。
 
 set -euo pipefail
 
@@ -60,6 +62,7 @@ FILTER_TYPE="$2"
 CLI_TIMEOUT="${3:-120}"
 POLL_BUDGET_SECONDS="${4:-90}"
 POLL_INTERVAL_SECONDS=3
+ONESHOT_RETRY_BUDGET_SECONDS=15
 
 run_unity_cmd() {
   unity cmd "$@" --timeout "$CLI_TIMEOUT"
@@ -83,8 +86,8 @@ else
 fi
 
 echo "[2/4] run_tests --mode PlayMode --filter ${FILTER} --filter_type ${FILTER_TYPE} --async_tests" >&2
-if ! RUN_TESTS_RAW="$(run_unity_cmd run_tests --mode PlayMode --filter "$FILTER" --filter_type "$FILTER_TYPE" --async_tests --json)"; then
-  echo "run_tests のunity cmd呼び出し自体が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
+if ! RUN_TESTS_RAW="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" run_tests --mode PlayMode --filter "$FILTER" --filter_type "$FILTER_TYPE" --async_tests --json)"; then
+  echo "run_tests のunity cmd呼び出し自体が失敗/タイムアウトしました（一時的なドメインリロード切断のリトライ予算超過を含む）。ハング・タイムアウト時の対応に従ってください。" >&2
   exit 2
 fi
 

@@ -116,6 +116,16 @@ recompile_statusポーリングとeditor_statusによる安定確認の両方に
   `unity cmd list_tests --mode PlayMode --timeout 30` の出力（`FullName`/`Mode`/`Assembly`/`Categories`を含むJSON）を
   ローカルでgrepし候補を絞り込む。**`Mode`は各テストのJSONに含まれているので推定しない**（旧MCP版の
   「testMode を推定するしかない」制約はここでは存在しない）
+  - **クラス名で絞り込む場合、単純な部分一致（`contains`）でgrepしてはならない。** `FullName` は
+    `Namespace.ClassName.MethodName` の形式でドット区切りのため、`ClassName` がクラス境界
+    （前後がドット、またはクラス名が文字列の先頭）で一致するかを確認すること（例:
+    `jq -r --arg c "ClassName" '.data.result.Tests[] | select((.FullName | split(".")) as $p | $p[-2] == $c)'`、
+    またはgrepなら `\.ClassName\.` のように前後にドットを含むパターンを使う）。単純な部分一致では、
+    対象クラス名が別クラス名の末尾に含まれるだけのケース（例: `FooTest` を検索したつもりが
+    `BarFooTest` のメソッドまで一致してしまう）で候補数を誤カウントする
+    （実地確認済み、2026-08-22。ADR-0010参照。この事例では `run_tests` 側のfilterは厳密一致で
+    実行結果自体は正しかったが、ステップ2の候補数とステップ6の期待件数比較が食い違い、
+    誤った異常検知につながった）
   - 0件: 誤字や存在しないテスト名の可能性を報告する
   - 1件: そのまま次へ
   - 1アセンブリの全件に一致: ステップ5で `--filter_type assembly` を使う
@@ -135,8 +145,8 @@ recompile_statusポーリングとeditor_statusによる安定確認の両方に
 
 | 対象の性質 | 実行方法 |
 | --- | --- |
-| 単一クラス／単一アセンブリ全体 | 既存通り `run_tests --filter_type assembly/testName`（EditMode）または `run-playmode-test.sh`（PlayMode） |
-| 複数クラスにまたがる個別FullNameの集合 | `unity cmd run_tests_batch_editmode --full_names <カンマ区切り>`（EditMode）または `scripts/run-tests-batch-playmode.sh <カンマ区切り>`（PlayMode） |
+| 単一クラス／単一アセンブリ全体 | `scripts/run-editmode-test.sh`（EditMode）または `scripts/run-playmode-test.sh`（PlayMode） |
+| 複数クラスにまたがる個別FullNameの集合 | `scripts/run-tests-batch-editmode.sh`（EditMode）または `scripts/run-tests-batch-playmode.sh`（PlayMode） |
 
 同一呼び出し内で複数グループが混在してもよい（例: EditModeの単一クラス実行1件 + PlayModeの
 複数クラス横断バッチ1件）。ステップ5で各グループを順に実行する。
@@ -159,11 +169,17 @@ recompile_statusポーリングとeditor_statusによる安定確認の両方に
 
 対象に含まれる `Mode` によって実行方法が異なる。
 
-**`Mode: EditMode` のみの場合**（従来通り、同期呼び出し）:
+**`Mode: EditMode` のみの場合**（`scripts/run-editmode-test.sh` を必ず使う。直接
+`unity cmd run_tests --mode EditMode` を呼んではならない — 「禁止事項」参照）:
 
 ```
-unity cmd run_tests --mode EditMode --filter <値> --filter_type <testName|assembly> --timeout <秒>
+scripts/run-editmode-test.sh <値> <testName|assembly> [timeout]
 ```
+
+このスクリプトが `run_tests` の起動呼び出しをテスト起動直後のドメインリロードによる一時的な
+Pipeline切断（「既知の罠」参照）に対して有限予算でリトライしたうえで、生のレスポンスJSONを
+標準出力に返す（EditModeの `run_tests` は同期応答のためポーリングは不要）。結果の読み方は
+ステップ6を参照。
 
 **`Mode: PlayMode` を含む場合**（`scripts/run-playmode-test.sh` を必ず使う。直接
 `unity cmd run_tests --mode PlayMode` を呼んではならない — 「禁止事項」参照）:
@@ -191,7 +207,8 @@ JSON（`test_status`由来。`status`/`duration`/`summary`/`results`を含む。
 
 **バッチコマンド（複数クラス横断）を使う場合**:
 
-- EditMode: `unity cmd run_tests_batch_editmode --full_names <カンマ区切りFullName> --timeout <秒>`
+- EditMode: `scripts/run-tests-batch-editmode.sh <カンマ区切りFullName> [timeout]`（直接 `unity cmd
+  run_tests_batch_editmode` を呼ばない。「禁止事項」参照）
 - PlayMode: `scripts/run-tests-batch-playmode.sh <カンマ区切りFullName> [timeout] [ポーリング予算秒数]`（直接 `unity cmd run_tests_batch_playmode` を呼ばない。「禁止事項」参照）
 
 **複数グループがある場合の失敗時の扱い**: テストのPass/Failは通常の結果として扱い、他のグループの
@@ -203,7 +220,8 @@ JSON（`test_status`由来。`status`/`duration`/`summary`/`results`を含む。
 複数グループを実行した場合、このステップは全グループの結果を集約してから行う。グループごとの
 Pass/Fail件数を合算したサマリと、失敗があったグループの詳細を報告する。
 
-`run_tests`（EditMode）または `run-playmode-test.sh`（PlayMode）の出力を確認する。
+`run-editmode-test.sh`/`run-tests-batch-editmode.sh`（EditMode）または `run-playmode-test.sh`/
+`run-tests-batch-playmode.sh`（PlayMode）の出力を確認する。
 
 - EditModeの小規模実行はレスポンスに結果が同期的に含まれる（実地確認済み）。キーは
   `Summary.Total/Passed/Failed`、`Results[].FullName/Status/Message/StackTrace`（PascalCase）
@@ -269,13 +287,21 @@ Pass/Fail件数を合算したサマリと、失敗があったグループの�
   （実地検証済み、2026-08-21）。これは**エディタが未起動という意味ではない**——ドメインリロードで
   Pipelineサーバーが一時的に落ちているだけで、リロード完了とともに自動的に復帰する。
   `ensure-compile-clean.sh`/`run-playmode-test.sh`/`run-tests-batch-playmode.sh`/
-  `check-editor-ready.sh` は内部でこれを一時的な切断として扱いポーリング・リトライを続ける
-  （`scripts/_lib.sh` の `is_transient_pipeline_unreachable`）ため、スキル利用者が意識する必要は
-  通常ない。ただし、これらのスクリプトを介さず `unity cmd` を直接叩いた際にこのメッセージに
-  遭遇した場合は、「未接続」と即断せず数秒待って再試行すること
+  `run-editmode-test.sh`/`run-tests-batch-editmode.sh`/`check-editor-ready.sh` は内部でこれを
+  一時的な切断として扱いポーリング・リトライを続ける（`scripts/_lib.sh` の
+  `is_transient_pipeline_unreachable`）ため、スキル利用者が意識する必要は通常ない。テスト起動
+  呼び出し自体（`run_tests`/`run_tests_batch_editmode`/`run_tests_batch_playmode`）がこの瞬断に
+  当たるケースも、上記スクリプト経由であれば `run_unity_cmd_resilient`（有限予算の単発リトライ）
+  で自動的に吸収される（ADR-0009）。ただし、これらのスクリプトを介さず `unity cmd` を直接叩いた
+  際にこのメッセージに遭遇した場合は、「未接続」と即断せず数秒待って再試行すること
 - `recompile_status --json` の `data.result` は `test_status`/`batch_test_status` と同様、JSON文字列
   として二重エンコードされている（`jq '.data.result | fromjson | .status'` で取り出す）。トップレベルに
   `.status` が直接あるわけではない点に注意（実地検証済み、2026-08-21）
+- ステップ2でクラス名を単純な部分一致（`contains`）でgrepすると、対象クラス名が別クラス名の末尾に
+  含まれるだけのケースを誤って候補に含めてしまう（実地確認済み、2026-08-22。別プロジェクトでの
+  検証中に、`FooTest`を検索したところ無関係な`BarFooTest`のメソッドまで一致し、候補数を誤カウント
+  した事例を確認した。ADR-0010参照）。クラス境界（前後がドット、またはクラス名が文字列の先頭）を
+  考慮した一致を使うこと（ステップ2の該当箇所参照）
 
 ## 禁止事項
 
@@ -290,6 +316,10 @@ Pass/Fail件数を合算したサマリと、失敗があったグループの�
 - タイムアウト・ハング時に原因（モーダルダイアログ等）を潰さないまま盲目的に再試行しない
   （1回で見切ってユーザーに確認を依頼する。原因解消を確認した後の実行はこの禁止に当たらない）
 - `--filter_type testName` にカンマ区切りの複数値を渡さない
+- EditModeのテスト実行は必ず `scripts/run-editmode-test.sh` 経由で行う。`unity cmd run_tests
+  --mode EditMode` を直接（スクリプトを介さず）呼ばない
+- バッチのEditModeテスト実行は必ず `scripts/run-tests-batch-editmode.sh` 経由で行う。`unity cmd
+  run_tests_batch_editmode` を直接（スクリプトを介さず）呼ばない
 - PlayModeのテスト実行は必ず `scripts/run-playmode-test.sh` 経由で行う。`unity cmd run_tests
   --mode PlayMode` を直接（スクリプトを介さず）呼ばない
 - バッチのPlayModeテスト実行は必ず `scripts/run-tests-batch-playmode.sh` 経由で行う。`unity cmd
