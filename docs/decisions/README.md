@@ -14,3 +14,4 @@
 | [0006](0006-batch-test-execution.md) | 複数テスト一括実行のバッチ化 | Accepted (2026-08-13) |
 | [0007](0007-domain-reload-transient-pipeline-unreachable.md) | ドメインリロード窓での過剰検知・過小検知への対策と`--json`未指定バグの修正 | Accepted (2026-08-21) |
 | [0008](0008-mode-verification-even-when-fullname-explicit.md) | FullName明示時もMode裏取りを必須化（EditMode/PlayMode取り違え対策） | Accepted (2026-08-21) |
+| [0009](0009-oneshot-retry-for-test-launch-calls.md) | テスト起動呼び出し自体への単発リトライ導入（起動直後の瞬断で毎回2倍コストになる問題の解消） | Accepted (2026-08-22) |
