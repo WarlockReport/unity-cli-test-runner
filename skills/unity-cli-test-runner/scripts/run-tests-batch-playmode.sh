@@ -19,8 +19,17 @@
 #      run_tests_batch_playmode がUnity側で受理されなかった場合
 #   3  完了は検知したが結果がstaleと疑われる（ベースライン完全一致、またはfull_namesのいずれかの
 #      手がかりが結果に見当たらない）
+#
+# 注意: PlayMode突入直後はドメインリロードが発生し、その1〜2秒間 unity cmd が
+# "No Unity Editor instances found with reachable Pipeline servers." で失敗することが
+# 実測で確認されている（_lib.sh参照）。batch_test_statusポーリング中にこれを検知した場合は
+# ハング扱いにせずポーリングを継続する。
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_lib.sh
+source "${SCRIPT_DIR}/_lib.sh"
 
 if [ "$#" -lt 1 ]; then
   echo "使い方: run-tests-batch-playmode.sh <カンマ区切りFullName> [timeout(既定120)] [ポーリング予算秒数(既定90)]" >&2
@@ -69,6 +78,14 @@ status=""
 raw=""
 while [ "$elapsed" -lt "$POLL_BUDGET_SECONDS" ]; do
   if ! raw="$(run_unity_cmd batch_test_status --json)"; then
+    if is_transient_pipeline_unreachable "$raw"; then
+      # PlayMode突入直後のドメインリロードによる一時的な切断とみなし、ハング扱いに
+      # せずポーリングを続行する（経過秒数はbudgetから消費されるため、切断が本当に
+      # 続けば下のbudget超過チェックで通常通りexit 2になる）
+      sleep "$POLL_INTERVAL_SECONDS"
+      elapsed=$((elapsed + POLL_INTERVAL_SECONDS))
+      continue
+    fi
     echo "batch_test_status が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
     exit 2
   fi
