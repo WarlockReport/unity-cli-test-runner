@@ -1,7 +1,7 @@
 {
   "name": "unity-cli-test-runner",
   "description": "Unity CLI（unity cmd）経由でEditMode/PlayModeテストを絞り込み実行するClaude Codeスキル＋専用エージェント",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": { "name": "WarlockReport" },
   "homepage": "https://github.com/WarlockReport/unity-cli-test-runner",
   "repository": "https://github.com/WarlockReport/unity-cli-test-runner",
