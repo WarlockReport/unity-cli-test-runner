@@ -116,6 +116,16 @@ recompile_statusポーリングとeditor_statusによる安定確認の両方に
   `unity cmd list_tests --mode PlayMode --timeout 30` の出力（`FullName`/`Mode`/`Assembly`/`Categories`を含むJSON）を
   ローカルでgrepし候補を絞り込む。**`Mode`は各テストのJSONに含まれているので推定しない**（旧MCP版の
   「testMode を推定するしかない」制約はここでは存在しない）
+  - **クラス名で絞り込む場合、単純な部分一致（`contains`）でgrepしてはならない。** `FullName` は
+    `Namespace.ClassName.MethodName` の形式でドット区切りのため、`ClassName` がクラス境界
+    （前後がドット、またはクラス名が文字列の先頭）で一致するかを確認すること（例:
+    `jq -r --arg c "ClassName" '.data.result.Tests[] | select((.FullName | split(".")) as $p | $p[-2] == $c)'`、
+    またはgrepなら `\.ClassName\.` のように前後にドットを含むパターンを使う）。単純な部分一致では、
+    対象クラス名が別クラス名の末尾に含まれるだけのケース（例: `FooTest` を検索したつもりが
+    `BarFooTest` のメソッドまで一致してしまう）で候補数を誤カウントする
+    （実地確認済み、2026-08-22。ADR-0010参照。この事例では `run_tests` 側のfilterは厳密一致で
+    実行結果自体は正しかったが、ステップ2の候補数とステップ6の期待件数比較が食い違い、
+    誤った異常検知につながった）
   - 0件: 誤字や存在しないテスト名の可能性を報告する
   - 1件: そのまま次へ
   - 1アセンブリの全件に一致: ステップ5で `--filter_type assembly` を使う
@@ -287,6 +297,11 @@ Pass/Fail件数を合算したサマリと、失敗があったグループの�
 - `recompile_status --json` の `data.result` は `test_status`/`batch_test_status` と同様、JSON文字列
   として二重エンコードされている（`jq '.data.result | fromjson | .status'` で取り出す）。トップレベルに
   `.status` が直接あるわけではない点に注意（実地検証済み、2026-08-21）
+- ステップ2でクラス名を単純な部分一致（`contains`）でgrepすると、対象クラス名が別クラス名の末尾に
+  含まれるだけのケースを誤って候補に含めてしまう（実地確認済み、2026-08-22。別プロジェクトでの
+  検証中に、`FooTest`を検索したところ無関係な`BarFooTest`のメソッドまで一致し、候補数を誤カウント
+  した事例を確認した。ADR-0010参照）。クラス境界（前後がドット、またはクラス名が文字列の先頭）を
+  考慮した一致を使うこと（ステップ2の該当箇所参照）
 
 ## 禁止事項
 
