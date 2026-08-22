@@ -18,7 +18,8 @@
 /plugin install unity-cli-test-runner
 ```
 
-スキル `unity-cli-test-runner` と専用サブエージェント `unity-test-runner` が使えるようになります。
+スキル `unity-cli-test-runner`（テスト実行）・`unity-compile-check`（コンパイル確認のみ、テスト実行なし）と、
+専用サブエージェント `unity-test-runner` が使えるようになります。
 
 ### 2. Unity側パッケージ
 
