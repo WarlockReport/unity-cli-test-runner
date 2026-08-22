@@ -9,8 +9,10 @@
 #
 # 注意: 引数のポーリング予算秒数は、recompile_statusポーリング（ステップ3）と
 # editor_statusによる安定確認（ステップ4）の両方に個別に適用される（elapsedはステップごとに
-# リセットされる）。そのため、両ステップが共に予算いっぱいまでかかった場合、この関数全体の
-# 所要時間は最大で「引数の2倍」になりうる（既定なら最大120秒）。
+# リセットされる）。さらに各ステップは予算超過時に1回だけ自動リカバリ（下記参照）を試みるため、
+# この関数全体の所要時間は最大で「引数の4倍強」になりうる（既定なら最大240秒＋自動リカバリの
+# 直接確認分。直接確認はONESHOT_RETRY_BUDGET_SECONDS＝15秒を上限に一時切断のみリトライするため、
+# ステップごとに最大15秒、2ステップ分で最大30秒が追加で上乗せされうる）。
 #
 # 前提: `unity`（Pipelineサーバー経由で起動中エディタに接続するCLI）と `jq` がPATH上にあること。
 #
@@ -19,7 +21,8 @@
 #   1  コンパイルエラーを検出した（詳細は標準出力）。テスト対象の解決へ進まず報告する
 #   2  recompile_statusがcompleted/up_to_dateにならない、ドメインリロードが安定して完了しない、
 #      またはunity cmd呼び出し自体が（一時的なPipeline切断のリトライ予算を使い切ってもなお）
-#      失敗/タイムアウトした。盲目的に再試行せず、スキルの「ハング・タイムアウト時の対応」に従う
+#      失敗/タイムアウトした（下記の自動リカバリを試みても解消しなかった場合を含む）。
+#      盲目的に再試行せず、スキルの「ハング・タイムアウト時の対応」に従う
 #   3  get_console_logsの返り値の形式が想定と異なり、エラー有無を確実に判定できなかった。
 #      標準出力の生JSONを確認して手動判断する
 #
@@ -39,6 +42,18 @@
 #   直後にすら unity cmd 呼び出しが失敗しうる。そのため recompile_status が完了状態を報告した
 #   だけでは「確定」とみなさず、editor_status の compiling/domainReloadInProgress が両方falseで
 #   2回連続安定するまで確認してから終了する
+#
+# 自動リカバリ（実測済み、2026-08-22、ADR-0011）:
+# - 実運用で、ステップ3/4のポーリングが予算超過して exit 2 になった直後にコントローラーが
+#   `unity cmd editor_status` を直接叩くと実はreadyだった（＝一時切断が予算を使い切った後に
+#   ちょうど解消していた）というケースが6回中2回観測された。これはドメインリロードの想定
+#   継続時間（1〜2秒）を超える、より長い一時切断が起きうることを示している
+# - このケースをコントローラーへの報告・再ディスパッチという往復に頼らずスクリプト内で
+#   自己解決させるため、各ステップは予算超過時に (a) editor_status を直接確認し（この確認自体が
+#   一時切断に当たって誤判定しないよう、他の単発コマンドと同じ run_unity_cmd_resilient で
+#   一時切断のみ最大15秒リトライする）、(b) readyが裏取りできた場合に限り、同じポーリングを
+#   新しい予算で1回だけやり直す。裏取りできない場合（本当にまだreadyでない場合）は即座に
+#   exit 2 とし、盲目的に待ち時間を延ばすことはしない
 
 set -euo pipefail
 
@@ -56,6 +71,129 @@ run_unity_cmd() {
   unity cmd "$@" --timeout "$CLI_TIMEOUT"
 }
 
+# editor_status を直接確認する。予算超過後の自動リカバリを試みてよいかどうかの
+# 裏取りにのみ使う。この確認自体がたまたま一時切断のタイミングに重なって「未回復」と
+# 誤判定しないよう、run_unity_cmd_resilient で一時切断のみ有限予算（15秒）リトライする
+# （盲目的な待機延長ではなく、他の単発コマンドと同じ既存の確認済みイディオム）。
+is_editor_ready_now() {
+  local raw
+  if ! raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" editor_status --json)"; then
+    return 1
+  fi
+  local compiling domain_reload
+  compiling="$(echo "$raw" | jq -r '.data.result.compiling' 2>/dev/null || true)"
+  domain_reload="$(echo "$raw" | jq -r '.data.result.domainReloadInProgress' 2>/dev/null || true)"
+  [ "$compiling" = "false" ] && [ "$domain_reload" = "false" ]
+}
+
+# [3/5] recompile_status をポーリングする。
+# 戻り値: 0=completed/up_to_dateになった / 1=予算超過（自動リカバリの余地あり） /
+#         2=unity cmd呼び出し自体が非一時的な理由で失敗した（リカバリの余地なし）
+poll_recompile_status() {
+  local budget="$1"
+  local elapsed=0
+  local status=""
+  local raw=""
+  while [ "$elapsed" -lt "$budget" ]; do
+    if raw="$(run_unity_cmd recompile_status --json)"; then
+      status="$(echo "$raw" | jq -r '.data.result | fromjson | .status' 2>/dev/null || true)"
+    elif is_transient_pipeline_unreachable "$raw"; then
+      # ドメインリロード中の一時的な切断とみなし、ハング扱いにせずポーリングを続行する
+      # （経過秒数はbudgetから消費されるため、切断が本当に続けば下のbudget超過チェックで
+      # 通常通り戻り値1になる）
+      echo "  Pipeline一時切断を検知（ドメインリロード中の可能性）。ポーリング継続。" >&2
+      status=""
+    else
+      echo "recompile_status が失敗/タイムアウトしました。" >&2
+      return 2
+    fi
+
+    case "$status" in
+      completed|up_to_date)
+        return 0
+        ;;
+    esac
+
+    sleep "$POLL_INTERVAL_SECONDS"
+    elapsed=$((elapsed + POLL_INTERVAL_SECONDS))
+  done
+
+  if is_transient_pipeline_unreachable "${raw:-}"; then
+    echo "recompile_statusが${budget}秒以内にcompleted/up_to_dateになりませんでした（Pipeline切断が継続）。" >&2
+  else
+    echo "recompile_statusが${budget}秒以内にcompleted/up_to_dateになりませんでした（最終状態: ${status:-不明}）。" >&2
+  fi
+  return 1
+}
+
+# [4/5] editor_status で compiling/domainReloadInProgress が両方falseになるのを
+# SETTLE_REQUIRED_COUNT回連続で確認する。戻り値の意味はpoll_recompile_statusと同じ。
+poll_editor_status_settle() {
+  local budget="$1"
+  local settled_count=0
+  local elapsed=0
+  local raw=""
+  local compiling domain_reload
+  while [ "$elapsed" -lt "$budget" ]; do
+    if raw="$(run_unity_cmd editor_status --json)"; then
+      compiling="$(echo "$raw" | jq -r '.data.result.compiling' 2>/dev/null || true)"
+      domain_reload="$(echo "$raw" | jq -r '.data.result.domainReloadInProgress' 2>/dev/null || true)"
+    elif is_transient_pipeline_unreachable "$raw"; then
+      # まさにドメインリロード中なので不安定とみなし、連続カウントをリセットして続行する
+      echo "  Pipeline一時切断を検知（ドメインリロード中の可能性）。安定確認カウントをリセットして継続。" >&2
+      compiling="true"
+      domain_reload="true"
+    else
+      echo "editor_status が失敗/タイムアウトしました。" >&2
+      return 2
+    fi
+
+    if [ "$compiling" = "false" ] && [ "$domain_reload" = "false" ]; then
+      settled_count=$((settled_count + 1))
+      if [ "$settled_count" -ge "$SETTLE_REQUIRED_COUNT" ]; then
+        return 0
+      fi
+    else
+      settled_count=0
+    fi
+
+    sleep "$POLL_INTERVAL_SECONDS"
+    elapsed=$((elapsed + POLL_INTERVAL_SECONDS))
+  done
+
+  if is_transient_pipeline_unreachable "${raw:-}"; then
+    echo "editor_statusのcompiling/domainReloadInProgressが${budget}秒以内に安定してfalseになりませんでした（Pipeline切断が継続）。" >&2
+  else
+    echo "editor_statusのcompiling/domainReloadInProgressが${budget}秒以内に安定してfalseになりませんでした。" >&2
+  fi
+  return 1
+}
+
+# 予算超過後の1回限りの自動リカバリ。$2にはリカバリ対象のポーリング関数名を渡す
+# （poll_recompile_status または poll_editor_status_settle）。
+# 戻り値: 0=リカバリ後に成功 / 非0=失敗（呼び出し元にはこれ以上の区別は不要なので
+# 一律非0を返す。「回復未確認で未実施」と「リカバリを試みたが失敗」の違いは、
+# ここで出力するメッセージ自体が示すため、呼び出し元の追加メッセージで矛盾させない
+# ようにする）
+retry_once_if_recovered() {
+  local label="$1"
+  local poll_fn="$2"
+  local budget="$3"
+
+  echo "  予算超過。editor_statusを直接確認し、回復していれば1回だけ自動リカバリします。" >&2
+  if ! is_editor_ready_now; then
+    echo "  直接確認でも回復していませんでした。自動リカバリは行わず、ハング・タイムアウト時の対応に従ってください。" >&2
+    return 1
+  fi
+
+  echo "  editor_statusはreadyでした。予算をリセットして${label}を1回だけやり直します（自動リカバリ）。" >&2
+  if "$poll_fn" "$budget"; then
+    return 0
+  fi
+  echo "  自動リカバリ（${label}のやり直し）も失敗しました。ハング・タイムアウト時の対応に従ってください。" >&2
+  return 1
+}
+
 echo "[1/5] clear_console" >&2
 if ! run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" clear_console >/dev/null; then
   echo "clear_console が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
@@ -69,83 +207,42 @@ if ! run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" reco
 fi
 
 echo "[3/5] recompile_status をポーリング（予算 ${POLL_BUDGET_SECONDS}秒）" >&2
-elapsed=0
-status=""
-while [ "$elapsed" -lt "$POLL_BUDGET_SECONDS" ]; do
-  if raw="$(run_unity_cmd recompile_status --json)"; then
-    status="$(echo "$raw" | jq -r '.data.result | fromjson | .status' 2>/dev/null || true)"
-  elif is_transient_pipeline_unreachable "$raw"; then
-    # ドメインリロード中の一時的な切断とみなし、ハング扱いにせずポーリングを続行する
-    # （経過秒数はbudgetから消費されるため、切断が本当に続けば下のbudget超過チェックで
-    # 通常通りexit 2になる）
-    echo "  Pipeline一時切断を検知（ドメインリロード中の可能性）。ポーリング継続。" >&2
-    status=""
-  else
-    echo "recompile_status が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
+if poll_recompile_status "$POLL_BUDGET_SECONDS"; then
+  step3_rc=0
+else
+  step3_rc=$?
+fi
+case "$step3_rc" in
+  0) ;;
+  2)
+    echo "ハング・タイムアウト時の対応に従ってください。" >&2
     exit 2
-  fi
-
-  case "$status" in
-    completed|up_to_date)
-      break
-      ;;
-  esac
-
-  sleep "$POLL_INTERVAL_SECONDS"
-  elapsed=$((elapsed + POLL_INTERVAL_SECONDS))
-done
-
-case "$status" in
-  completed|up_to_date)
     ;;
   *)
-    if is_transient_pipeline_unreachable "${raw:-}"; then
-      echo "recompile_statusが${POLL_BUDGET_SECONDS}秒以内にcompleted/up_to_dateになりませんでした。Pipeline切断がbudget全体を通じて解消しませんでした（一時的なドメインリロードではなく、エディタが本当に落ちている可能性）。ハング・タイムアウト時の対応に従ってください。" >&2
-    else
-      echo "recompile_statusが${POLL_BUDGET_SECONDS}秒以内にcompleted/up_to_dateになりませんでした（最終状態: ${status:-不明}）。ハング・タイムアウト時の対応に従ってください。" >&2
+    if ! retry_once_if_recovered "recompile_statusポーリング" poll_recompile_status "$POLL_BUDGET_SECONDS"; then
+      exit 2
     fi
-    exit 2
     ;;
 esac
 
 echo "[4/5] editor_status でドメインリロード完了の安定確認（${SETTLE_REQUIRED_COUNT}回連続）" >&2
-settled_count=0
-elapsed=0
-while [ "$elapsed" -lt "$POLL_BUDGET_SECONDS" ]; do
-  if raw="$(run_unity_cmd editor_status --json)"; then
-    compiling="$(echo "$raw" | jq -r '.data.result.compiling' 2>/dev/null || true)"
-    domain_reload="$(echo "$raw" | jq -r '.data.result.domainReloadInProgress' 2>/dev/null || true)"
-  elif is_transient_pipeline_unreachable "$raw"; then
-    # まさにドメインリロード中なので不安定とみなし、連続カウントをリセットして続行する
-    echo "  Pipeline一時切断を検知（ドメインリロード中の可能性）。安定確認カウントをリセットして継続。" >&2
-    compiling="true"
-    domain_reload="true"
-  else
-    echo "editor_status が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
-    exit 2
-  fi
-
-  if [ "$compiling" = "false" ] && [ "$domain_reload" = "false" ]; then
-    settled_count=$((settled_count + 1))
-    if [ "$settled_count" -ge "$SETTLE_REQUIRED_COUNT" ]; then
-      break
-    fi
-  else
-    settled_count=0
-  fi
-
-  sleep "$POLL_INTERVAL_SECONDS"
-  elapsed=$((elapsed + POLL_INTERVAL_SECONDS))
-done
-
-if [ "$settled_count" -lt "$SETTLE_REQUIRED_COUNT" ]; then
-  if is_transient_pipeline_unreachable "${raw:-}"; then
-    echo "editor_statusのcompiling/domainReloadInProgressが${POLL_BUDGET_SECONDS}秒以内に安定してfalseになりませんでした。Pipeline切断がbudget全体を通じて解消しませんでした（一時的なドメインリロードではなく、エディタが本当に落ちている可能性）。ハング・タイムアウト時の対応に従ってください。" >&2
-  else
-    echo "editor_statusのcompiling/domainReloadInProgressが${POLL_BUDGET_SECONDS}秒以内に安定してfalseになりませんでした。ハング・タイムアウト時の対応に従ってください。" >&2
-  fi
-  exit 2
+if poll_editor_status_settle "$POLL_BUDGET_SECONDS"; then
+  step4_rc=0
+else
+  step4_rc=$?
 fi
+case "$step4_rc" in
+  0) ;;
+  2)
+    echo "ハング・タイムアウト時の対応に従ってください。" >&2
+    exit 2
+    ;;
+  *)
+    if ! retry_once_if_recovered "editor_status安定確認" poll_editor_status_settle "$POLL_BUDGET_SECONDS"; then
+      exit 2
+    fi
+    ;;
+esac
 
 echo "[5/5] get_console_logs --severity error" >&2
 if ! logs_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" get_console_logs --severity error --limit 20 --json)"; then

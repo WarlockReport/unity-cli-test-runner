@@ -16,3 +16,4 @@
 | [0008](0008-mode-verification-even-when-fullname-explicit.md) | FullName明示時もMode裏取りを必須化（EditMode/PlayMode取り違え対策） | Accepted (2026-08-21) |
 | [0009](0009-oneshot-retry-for-test-launch-calls.md) | テスト起動呼び出し自体への単発リトライ導入（起動直後の瞬断で毎回2倍コストになる問題の解消） | Accepted (2026-08-22) |
 | [0010](0010-class-name-boundary-aware-matching.md) | クラス名解決時の部分一致誤検知（境界を考慮しないgrepによる別クラスの巻き込み） | Accepted (2026-08-22) |
+| [0011](0011-ensure-compile-clean-inline-recovery.md) | ensure-compile-clean.shのポーリング予算超過に対するスクリプト内自動リカバリ | Accepted (2026-08-22) |
