@@ -15,10 +15,16 @@
 
 ```
 /plugin marketplace add WarlockReport/unity-cli-test-runner
-/plugin install unity-cli-test-runner
+/plugin install wr-unity-cli-tools
 ```
 
-スキル `unity-cli-test-runner` と専用サブエージェント `unity-test-runner` が使えるようになります。
+スキル `unity-cli-test-runner`（テスト実行）・`unity-compile-check`（コンパイル確認のみ、テスト実行なし）と、
+専用サブエージェント `unity-test-runner` が使えるようになります。
+
+> **既存導入者向けの注意**: 以前 `unity-cli-test-runner` という名前でこのプラグインを導入していた場合、
+> プラグイン名・マーケットプレイス名の変更に伴い自動では追従されません。
+> `/plugin uninstall unity-cli-test-runner` （または該当プラグインの削除）と
+> 旧マーケットプレイスの削除を行った上で、上記コマンドで入れ直してください。
 
 ### 2. Unity側パッケージ
 

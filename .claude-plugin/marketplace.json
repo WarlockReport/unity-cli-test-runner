@@ -1,12 +1,12 @@
 {
-  "name": "unity-cli-test-runner-dev",
-  "description": "Marketplace for the unity-cli-test-runner plugin",
+  "name": "wr-unity-cli-tools-dev",
+  "description": "Marketplace for the wr-unity-cli-tools plugin",
   "owner": { "name": "WarlockReport" },
   "plugins": [
     {
-      "name": "unity-cli-test-runner",
-      "description": "Unity CLI（unity cmd）経由でEditMode/PlayModeテストを絞り込み実行するClaude Codeスキル＋専用エージェント",
-      "version": "0.1.2",
+      "name": "wr-unity-cli-tools",
+      "description": "Unity CLI（unity cmd）経由でEditMode/PlayModeテストの絞り込み実行・コンパイル確認を行うClaude Codeスキル＋専用エージェント",
+      "version": "0.2.0",
       "source": "./",
       "author": { "name": "WarlockReport" }
     }
