@@ -99,7 +99,15 @@ CHANGELOGには「`Editor/Commands/` 配下のコマンドハンドラ」「フ�
   ベンダリングした `TestResultCollector` / `TestResult` / `TestSummary` が
   ドメイン内の通常経路で正しく動作している
 
-未確認: PlayModeバッチ実行（ドメインリロードを跨ぐ結果収集）は実地未検証。
+- PlayMode バッチ（`run_tests_batch_playmode`、複数クラス横断の7件）で `completed` /
+  `total:7 passed:7` / 結果7件を取得できた。これは移植部分の中で最も繊細な経路
+  ——Play Mode突入によるドメインリロードで登録済みコールバックが失われた後、
+  `TestRunnerBatchPlayModeReloadHandler` が `ReattachAfterReload` を呼んで新しいコレクタを登録し、
+  `RunFinished` 時に `Results.Count == 0`（逐次の `TestFinished` は前のドメインのコレクタに配られている）
+  から `CollectLeafResults` で結果ツリーを再構築する——を実際に通っている
+- 比較対象として、パッケージ本体の `run_tests --filter_type assembly` によるアセンブリ全体の
+  PlayMode実行（358件）も `passed:358` で通ることを確認した（本パッケージのコードは通らない経路だが、
+  0.6環境全体の健全性の裏取りとして）
 
 ## 関連
 
