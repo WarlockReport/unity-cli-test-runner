@@ -5,7 +5,14 @@
 ## 前提条件
 
 - Unity 6000.0 以降
-- `com.unity.pipeline` パッケージが対象プロジェクトに導入済みであること（本パッケージの `dependencies` には含めていない。限定配布のパッケージであり公開UPMレジストリで解決できない可能性があるため。未導入の環境では、このパッケージのコードは自動的にコンパイル対象から除外される — `TestRunnerCli.asmdef` の `versionDefines` による）
+- `com.unity.pipeline` パッケージ（**0.6.0-exp.1 以降**）が対象プロジェクトに導入済みであること
+  - 0.5.0-exp.1 以前には対応していない。0.6 で `TestResultCollector` / `TestExecutionResponse` /
+    `TestSummary` / `TestResult` が `internal` 化され、本パッケージが同等の型を自前で持つように
+    なったため（[ADR-0012](../docs/decisions/0012-vendor-pipeline-internal-types.md)）
+  - 本パッケージの `dependencies` には含めていない。experimental なパッケージであり、
+    どの版を入れるかは対象プロジェクト側で明示的に選ぶべきものだから。未導入の環境では、
+    このパッケージのコードは自動的にコンパイル対象から除外される
+    — `TestRunnerCli.asmdef` の `versionDefines` による
 
 ## インストール
 

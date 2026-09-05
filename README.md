@@ -1,13 +1,14 @@
 # unity-cli-test-runner
 
-[Unity CLI](https://docs.unity.com/en-us/unity-cli/unity-cli) と [Unity Pipeline package](https://docs.unity3d.com/Packages/com.unity.pipeline@0.5/manual/index.html) を使用して、コード修正後に指定したテストを実行するための Claude Code プラグインです。
+[Unity CLI](https://docs.unity.com/en-us/unity-cli/unity-cli) と [Unity Pipeline package](https://docs.unity3d.com/Packages/com.unity.pipeline@0.6/manual/index.html) を使用して、コード修正後に指定したテストを実行するための Claude Code プラグインです。
 
 対象 Unity プロジェクト側に導入する Unity Editor 拡張（UPMパッケージ）と、Claude Code 側のスキル・専用サブエージェントの 2 つで構成されています。
 
 ## 前提条件
 
 - `unity` CLI と `jq` が PATH 上にあること
-- 対象Unityプロジェクトに `com.unity.pipeline` パッケージ（0.5.0-exp.1）が導入済みであること
+- 対象Unityプロジェクトに `com.unity.pipeline` パッケージ（**0.6.0-exp.1 以降**）が導入済みであること。
+  0.5.0-exp.1 以前には対応していない（0.6でパッケージ内部の型が `internal` 化されたため。詳細は [ADR-0012](docs/decisions/0012-vendor-pipeline-internal-types.md)）
 
 ## インストール
 

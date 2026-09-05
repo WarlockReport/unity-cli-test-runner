@@ -66,3 +66,19 @@ Unityコンソールに `InvalidOperationException`（`Unity.Pipeline.Editor.Tes
 SKILL.mdの「既知の罠」・ステップ5にあった例外累積確認のアクションは削除した（経緯として本ADRに残す）。
 ただし「当時の結論」節に記載したstale結果検知の仕組み（ベースライン比較、exit 3）自体は本問題の解消とは独立した価値を持つため、
 `scripts/run-playmode-test.sh` の実装として維持されている。
+### 追記 (2026-09-06) — 0.6でさらに別経路の二重完了が修正された
+
+`com.unity.pipeline` 0.6.0-exp.1 に、`TestResultCollector` の二重完了に関する**別件**の修正が入った。
+
+> [AUTHAPI-36] Fixed `TestResultCollector.RunFinished` throwing `InvalidOperationException`
+> (double-complete) when a run had already been completed by `SetError`/`Cancel` (e.g. a
+> timed-out or errored run): a late `RunFinished` is now a no-op and the original
+> error/cancellation is preserved.
+
+上記Decisionが引く UUM-149016（0.5）が「古いコレクタが後続の実行の完了通知を受け取る」経路だったのに対し、
+こちらは「タイムアウト・エラーで `SetError`/`Cancel` により完了済みにした run に、遅れて `RunFinished` が来る」経路である。
+実装上は `m_CompletionSource.SetResult` → `TrySetResult` への変更＋完了済みガードの追加。
+
+本プラグインでは `run_tests_batch_editmode` のタイムアウト経路（`collector.Cancel()` の後に `RunFinished` が届きうる）が該当する。
+[ADR-0012](0012-vendor-pipeline-internal-types.md) でコレクタをベンダリングする際は 0.6 版（この修正を含む）を移植し、
+同期モードを落とした本プラグインの実装では `m_HasCompleted` フラグが同等のガードを担う。

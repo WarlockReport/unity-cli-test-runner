@@ -181,6 +181,11 @@ exit 2を受け取った時点で追加の直接確認を行う必要はない�
 それ以降の`unity cmd`呼び出し全体が応答不能になる既知の障害を、発生条件そのものを潰すことで
 回避するため。EditModeのみの実行ではPlayモードに入らないためこの処理は不要。
 
+なお `com.unity.pipeline` 0.6.0-exp.1 以降は、ダイアログでブロックされている状態を
+無応答ではなく busy 応答（`busyReason="blocked_by_dialog"`）として返すため、
+このステップを飛ばしてしまった場合の症状が「無応答」から「予算超過でexit 2＋busy表示」に変わる。
+ただし**この事前保存ステップを省略してよい理由にはならない**（ダイアログが出れば実行は進まない）。
+
 ### 5. 実行
 
 対象に含まれる `Mode` によって実行方法が異なる。
@@ -310,12 +315,20 @@ Pass/Fail件数を合算したサマリと、失敗があったグループの�
   Pipelineサーバーが一時的に落ちているだけで、リロード完了とともに自動的に復帰する。
   `ensure-compile-clean.sh`/`run-playmode-test.sh`/`run-tests-batch-playmode.sh`/
   `run-editmode-test.sh`/`run-tests-batch-editmode.sh`/`check-editor-ready.sh` は内部でこれを
-  一時的な切断として扱いポーリング・リトライを続ける（`scripts/_lib.sh` の
-  `is_transient_pipeline_unreachable`）ため、スキル利用者が意識する必要は通常ない。テスト起動
+  一時的失敗として扱いポーリング・リトライを続ける（`scripts/_lib.sh` の
+  `is_transient_failure`）ため、スキル利用者が意識する必要は通常ない。テスト起動
   呼び出し自体（`run_tests`/`run_tests_batch_editmode`/`run_tests_batch_playmode`）がこの瞬断に
   当たるケースも、上記スクリプト経由であれば `run_unity_cmd_resilient`（有限予算の単発リトライ）
   で自動的に吸収される（ADR-0009）。ただし、これらのスクリプトを介さず `unity cmd` を直接叩いた
   際にこのメッセージに遭遇した場合は、「未接続」と即断せず数秒待って再試行すること
+- `com.unity.pipeline` 0.6.0-exp.1 以降は、同種の「今は実行できない」状態をサーバーが HTTP 503 と
+  構造化エンベロープ（`error="Server Busy"` / `status="busy"` / `retryable=true` / `busyReason`）で
+  返すことがある（ADR-0004・ADR-0007の追記）。`busyReason` は `"settling"`（エディタ起動直後の
+  インポート・コンパイル中）と `"blocked_by_dialog"`（モーダルダイアログがメインスレッドを塞いでいる）。
+  上記スクリプトは `is_transient_failure` でこれも一時的失敗として扱いリトライするが、
+  **`blocked_by_dialog` はユーザーがダイアログを閉じるまで解消しない**。予算超過で `exit 2` に
+  なった際、エラー本文に `blocked_by_dialog` や `Server Busy` が含まれていたら、再試行ではなく
+  **ユーザーにUnityエディタ上のダイアログを閉じてもらう**よう依頼すること
 - `recompile_status --json` の `data.result` は `test_status`/`batch_test_status` と同様、JSON文字列
   として二重エンコードされている（`jq '.data.result | fromjson | .status'` で取り出す）。トップレベルに
   `.status` が直接あるわけではない点に注意（実地検証済み、2026-08-21）

@@ -2,14 +2,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Unity.Pipeline;
-using Unity.Pipeline.Editor.Testing;
 using UnityEditor.TestTools.TestRunner.Api;
 
 namespace TestRunnerCli
 {
     /// <summary>run_tests_batch_editmode/run_tests_batch_playmode共通のフルネーム解析・
-    /// レスポンス組み立てヘルパー。ロジックは持たず、パッケージのpublicモデルを組み立てるだけ。</summary>
+    /// レスポンス組み立てヘルパー。ロジックは持たず、本パッケージのモデル（ADR-0012でベンダリング）を
+    /// 組み立てるだけ。</summary>
     internal static class TestRunnerCliUtility
     {
         internal static string[] ParseFullNames(string fullNames)

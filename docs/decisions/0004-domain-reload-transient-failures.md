@@ -41,3 +41,23 @@ SKILL.mdの「コンパイル状態の確定」（`ensure-compile-clean.sh` で�
 
 この2つの問題（過剰検知・過小検知）への具体的な対策は
 [ADR-0007](0007-domain-reload-transient-pipeline-unreachable.md) に切り出した。本ADRの事例A・Bの観測事実そのものは引き続き有効な記録として残すが、対策の実装詳細はADR-0007を参照すること。
+### 追記 (2026-09-06) — 0.6での関連する変更
+
+`com.unity.pipeline` 0.6.0-exp.1 に、本ADRが扱う「ドメインリロード窓での一時的失敗」と関連する変更が2つ入った。
+
+1. **busy応答の追加**
+   コマンドを実行できない状態を、サーバーが HTTP 503 と構造化エンベロープ
+   （`error="Server Busy"` / `status="busy"` / `retryable=true` / `busyReason`）で返すようになった。
+   `busyReason` は `"settling"`（エディタ起動直後のインポート・コンパイル中）と
+   `"blocked_by_dialog"`（モーダルダイアログがメインスレッドを塞いでいる）。
+   本プラグインのカスタムコマンドはすべて `MainThreadRequired = true` なのでどちらにも該当しうる。
+   対策は [ADR-0007](0007-domain-reload-transient-pipeline-unreachable.md) の追記を参照。
+
+2. **`CommandRegistry` のTypeCache探索復元**（UUM-149991）
+   > Fixed `CommandRegistry` staying on reflection-based command discovery after exiting Play Mode
+   > without a domain reload; `PipelineServerStartup` now restores TypeCache discovery on `EnteredEditMode`.
+
+   0.5以前は「ドメインリロードを伴わずにPlay Modeを抜けた後、コマンド探索がreflectionベースのまま留まる」状態になりえた。
+   PlayModeバッチ実行を多用する本プラグインの利用形態に直接効く修正であり、
+   本ADRが記録する一時的失敗の一部（Play Mode終了後にコマンドが見つからない類）は 0.6 で自然に解消している可能性がある。
+   ただし本ADR・ADR-0007の対策はいずれも「一時的失敗を寛容に扱う」方向のものであり、この修正によって不要になるものではないため、対策は維持する。

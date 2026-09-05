@@ -71,3 +71,32 @@ Step 0の1回きりの呼び出しにも、`run_unity_cmd_resilient()` による
   指定したポーリング予算秒数の最大2倍になりうる（既定なら最大120秒）。これはUnityエディタが本当にハングしている場合の検知時間が伸びるトレードオフだが、誤検知（正常なドメインリロードをハングと誤判定する）を防ぐために許容する
 - `run-playmode-test.sh`/`run-tests-batch-playmode.sh` に(b)相当の対策を入れていないため、理論上は同種のレースが起こりうる。再現・問題が確認された場合は改めてADRを起票して対策する
 - 実装後の検証は、実際に強制リコンパイル（ダミー`.cs`ファイルの作成→即削除）を発生させ、ドメインリロードの窓をまたいでも `ensure-compile-clean.sh` が `exit 0` に到達することを実行ログで確認する形で行った（旧プロジェクト環境での実施）
+
+### 追記 (2026-09-06) — 0.6のbusy応答を一時的失敗として扱うようにした
+
+`com.unity.pipeline` 0.6.0-exp.1 は、コマンドを実行できない状態を HTTP 503 と構造化エンベロープ
+（`error="Server Busy"` / `status="busy"` / `retryable=true` / `busyReason="settling"|"blocked_by_dialog"`）で返すようになった
+（[ADR-0004](0004-domain-reload-transient-failures.md) の追記を参照）。
+
+本ADRが導入した一時的失敗の判定は `No Unity Editor instances found with reachable Pipeline servers` の文字列一致のみで、
+このbusy応答を一時的失敗として認識できなかった。そのため `_lib.sh` を以下のように拡張した。
+
+- `is_transient_busy()` を追加。サーバーが返す構造化フィールド（`"retryable":true` / `"status":"busy"`）と、
+  CLIが本文へ埋め込むメッセージ（`503 Service Unavailable` / `Server Busy`）の両方を拾う。
+  既存の400応答で、CLIが `"Pipeline server returned 400 Bad Request: <error>. <errorDetails>"` の形で
+  サーバーの error/errorDetails を本文に埋め込むことを実測で確認しているため、両面から拾う設計にした
+- `is_transient_failure()` を追加（`is_transient_pipeline_unreachable` または `is_transient_busy`）。
+  `run_unity_cmd_resilient` と `ensure-compile-clean.sh` の2つのポーリング関数、
+  `run-playmode-test.sh` / `run-tests-batch-playmode.sh` のポーリングループの判定をこれに差し替えた
+- `run_unity_cmd_capture()` を追加。一時的失敗のメッセージが標準出力・標準エラーのどちらに出るかは
+  CLIの版・失敗種別に依存するため、判定には両方を結合した `UNITY_CMD_DIAG` を使い、
+  呼び出し元がjqでパースする値は標準出力だけの `UNITY_CMD_OUT` に保つ。
+  従来の `raw="$(run_unity_cmd ...)"` というコマンド置換の形では、サブシェル内で設定した変数が親に伝わらないため、
+  ポーリング側の呼び出し形を明示的に書き換えている
+
+`blocked_by_dialog` は、ユーザーがダイアログを閉じるまで解消しない。
+本ADRの設計（有限予算内でのみリトライし、超過したら盲目的に待たず呼び出し元へ委譲する）はこのケースにもそのまま当てはまり、
+予算を使い切って失敗し、そのときエラー本文がダイアログの存在を伝えるのが正しい振る舞いである。
+
+**未検証**: `unity` CLI（1.0.0-beta.6）が503応答を具体的にどう整形するかは、0.6環境での実機確認が必要である。
+上記の検出は構造化フィールドとメッセージ本文の両方を拾う設計にしてあるが、実機で確認するまで確定ではない。

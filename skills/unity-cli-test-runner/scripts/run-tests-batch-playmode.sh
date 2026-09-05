@@ -80,11 +80,14 @@ elapsed=0
 status=""
 raw=""
 while [ "$elapsed" -lt "$POLL_BUDGET_SECONDS" ]; do
-  if ! raw="$(run_unity_cmd batch_test_status --json)"; then
-    if is_transient_pipeline_unreachable "$raw"; then
-      # PlayMode突入直後のドメインリロードによる一時的な切断とみなし、ハング扱いに
-      # せずポーリングを続行する（経過秒数はbudgetから消費されるため、切断が本当に
-      # 続けば下のbudget超過チェックで通常通りexit 2になる）
+  if run_unity_cmd_capture batch_test_status --json --timeout "$CLI_TIMEOUT"; then
+    raw="$UNITY_CMD_OUT"
+  else
+    if is_transient_failure "$UNITY_CMD_DIAG"; then
+      # PlayMode突入直後のドメインリロードによる一時的な切断、またはサーバーのbusy応答
+      # （0.6以降。settling / blocked_by_dialog）とみなし、ハング扱いにせずポーリングを
+      # 続行する（経過秒数はbudgetから消費されるため、解消しなければ下のbudget超過
+      # チェックで通常通りexit 2になる）
       sleep "$POLL_INTERVAL_SECONDS"
       elapsed=$((elapsed + POLL_INTERVAL_SECONDS))
       continue
