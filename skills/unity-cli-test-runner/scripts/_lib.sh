@@ -58,6 +58,10 @@ run_unity_cmd_capture() {
   UNITY_CMD_OUT="$(unity cmd "$@" 2>"$err_file")" && rc=0 || rc=$?
   UNITY_CMD_DIAG="${UNITY_CMD_OUT}
 $(cat "$err_file")"
+  # 改修前の `raw="$(unity cmd ...)"` という形では標準エラーはそのまま端末へ素通りしていた。
+  # ここで握り潰すと、標準出力が空で標準エラーにだけ理由が出る失敗（CLIとサーバーの
+  # 版不整合などがこの形になる）で「失敗しました」以外の手がかりが消えるため、素通りさせる。
+  cat "$err_file" >&2
   rm -f "$err_file"
   return "$rc"
 }
