@@ -79,6 +79,28 @@ CHANGELOGには「`Editor/Commands/` 配下のコマンドハンドラ」「フ�
   現時点で本プラグインが本体のpublic APIに依存しているのは `CommandExecutionResponse` / `BaseResponse` / `CliCommandAttribute` / `CliArgAttribute` の4つだけであり、
   依存面はベンダリング前より小さくなっている
 
+## 実地検証 (2026-09-06)
+
+`com.unity.pipeline` 0.6.0-exp.1・Unity 6000.3.14f1 の実プロジェクトで確認した。
+
+- 4つのカスタムコマンドが登録されている（＝0.6でコンパイルが通っている）。
+  同じコマンド一覧に 0.6 新規の `batch` / `run_script` / `report_evals` /
+  `get_runtime_pipeline_settings` が含まれることで、接続先が 0.6 であることも裏取りできる
+- エラー経路（`run_tests_batch_playmode --async_tests false`）のレスポンスで、
+  スクリプトが依拠する `.data.result.success` と `.data.result.error` が両方とも生きている一方、
+  `command` / `executedAt` / `executionTimeMs` は消え、null の `message` / `errorDetails` も落ち、
+  失敗時の `result` も省略されていた（＝lean化は効いており、かつjqパスは無傷）
+- **レスポンスに `StatusPath` が無い**。これは本ADRでベンダリング時に落としたフィールドなので、
+  パッケージ本体の型ではなく本パッケージの `TestExecutionResponse` が実際に使われている直接の証拠になる
+- 正常系（`run_tests_batch_editmode` に実在2件＋存在しない1件を渡す）で、
+  `Summary` が `Total:2 / Passed:2`、`Results` に2件の `FullName` / `Status` / `Duration`、
+  `Mode:"EditMode"`、そして `BuildMissingNamesMessage` による
+  `message: "要求した3件のうち1件が見つかりませんでした: ..."` が返った。
+  ベンダリングした `TestResultCollector` / `TestResult` / `TestSummary` が
+  ドメイン内の通常経路で正しく動作している
+
+未確認: PlayModeバッチ実行（ドメインリロードを跨ぐ結果収集）は実地未検証。
+
 ## 関連
 
 - [ADR-0002](0002-playmode-invalidoperationexception-accumulation.md) — 0.6 の AUTHAPI-36 について追記した
