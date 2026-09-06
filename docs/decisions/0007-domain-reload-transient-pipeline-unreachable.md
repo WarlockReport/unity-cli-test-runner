@@ -71,3 +71,68 @@ Step 0の1回きりの呼び出しにも、`run_unity_cmd_resilient()` による
   指定したポーリング予算秒数の最大2倍になりうる（既定なら最大120秒）。これはUnityエディタが本当にハングしている場合の検知時間が伸びるトレードオフだが、誤検知（正常なドメインリロードをハングと誤判定する）を防ぐために許容する
 - `run-playmode-test.sh`/`run-tests-batch-playmode.sh` に(b)相当の対策を入れていないため、理論上は同種のレースが起こりうる。再現・問題が確認された場合は改めてADRを起票して対策する
 - 実装後の検証は、実際に強制リコンパイル（ダミー`.cs`ファイルの作成→即削除）を発生させ、ドメインリロードの窓をまたいでも `ensure-compile-clean.sh` が `exit 0` に到達することを実行ログで確認する形で行った（旧プロジェクト環境での実施）
+
+### 追記 (2026-09-06) — 0.6のbusy応答を一時的失敗として扱うようにした
+
+`com.unity.pipeline` 0.6.0-exp.1 は、コマンドを実行できない状態を HTTP 503 と構造化エンベロープ
+（`error="Server Busy"` / `status="busy"` / `retryable=true` / `busyReason="settling"|"blocked_by_dialog"`）で返すようになった
+（[ADR-0004](0004-domain-reload-transient-failures.md) の追記を参照）。
+
+本ADRが導入した一時的失敗の判定は `No Unity Editor instances found with reachable Pipeline servers` の文字列一致のみで、
+このbusy応答を一時的失敗として認識できなかった。そのため `_lib.sh` を以下のように拡張した。
+
+- `is_transient_busy()` を追加。サーバーが返す構造化フィールド（`"retryable":true` / `"status":"busy"`）と、
+  CLIが本文へ埋め込むメッセージ（`503 Service Unavailable` / `Server Busy`）の両方を拾う。
+  既存の400応答で、CLIが `"Pipeline server returned 400 Bad Request: <error>. <errorDetails>"` の形で
+  サーバーの error/errorDetails を本文に埋め込むことを実測で確認しているため、両面から拾う設計にした
+- `is_transient_failure()` を追加（`is_transient_pipeline_unreachable` または `is_transient_busy`）。
+  `run_unity_cmd_resilient` と `ensure-compile-clean.sh` の2つのポーリング関数、
+  `run-playmode-test.sh` / `run-tests-batch-playmode.sh` のポーリングループの判定をこれに差し替えた
+- `run_unity_cmd_capture()` を追加。一時的失敗のメッセージが標準出力・標準エラーのどちらに出るかは
+  CLIの版・失敗種別に依存するため、判定には両方を結合した `UNITY_CMD_DIAG` を使い、
+  呼び出し元がjqでパースする値は標準出力だけの `UNITY_CMD_OUT` に保つ。
+  従来の `raw="$(run_unity_cmd ...)"` というコマンド置換の形では、サブシェル内で設定した変数が親に伝わらないため、
+  ポーリング側の呼び出し形を明示的に書き換えている。
+  なお改修前は標準エラーがそのまま端末へ素通りしていたため、`run_unity_cmd_capture` でも
+  判定に使った後で `cat "$err_file" >&2` して素通りを維持している。
+  これを怠ると、標準出力が空で標準エラーにだけ理由が出る失敗（CLIとサーバーの版不整合などがこの形になる）で
+  「失敗しました」以外の手がかりが消える
+
+`blocked_by_dialog` は、ユーザーがダイアログを閉じるまで解消しない。
+本ADRの設計（有限予算内でのみリトライし、超過したら盲目的に待たず呼び出し元へ委譲する）はこのケースにもそのまま当てはまり、
+予算を使い切って失敗し、そのときエラー本文がダイアログの存在を伝えるのが正しい振る舞いである。
+
+### 実地検証 (2026-09-06) — `blocked_by_dialog` はこのUnity版では発火しない
+
+Unity 6000.3.14f1 + `com.unity.pipeline` 0.6.0-exp.1 の実環境で、モーダルダイアログを開いた状態を作って確認した。
+
+| 叩いたもの | 種別 | 結果 |
+| --- | --- | --- |
+| `editor_status` | `MainThreadRequired = true` | **タイムアウト**（`Pipeline command 'editor_status' timed out after 30000ms`） |
+| `recompile_status` | false | 正常応答 |
+| `batch_test_status`（本パッケージ） | false | 正常応答 |
+| `unity status` | — | `state:"ready"` としか返さない |
+
+**503 busy も `blocked_by_dialog` も観測されなかった。** 0.6 CHANGELOG の AUTHAPI-64 が
+「Requires a recent enough trunk build」と明記している通り、ダイアログ検出のエディタ側フックが
+6000.3.14f1 には入っていないためと考えられる。したがって `is_transient_busy` は
+`blocked_by_dialog` については当面発火しない（`settling` 側と、将来のUnity版に対しては有効なので、実装は残す）。
+
+代わりに、この版で実際に使える判別法が確認できた。
+
+> **メインスレッド必須コマンドだけがタイムアウトし、メインスレッド不要のコマンドは正常応答する
+> → モーダルダイアログでメインスレッドが塞がれている**
+
+`check-editor-ready.sh` にこれを実装した。`editor_status`（MainThreadRequired）が失敗した場合に
+`recompile_status`（不要）を1回だけ試し、そちらが成功したら「Pipelineサーバーは生きていて
+メインスレッドだけが塞がれている」と判定し、**exit 2（未起動）ではなく exit 1** と
+「ダイアログを閉じてもらう」旨のメッセージを返す。
+エディタの再起動を促す誤った指示を出さないための区別である。
+
+対照実験として、ダイアログを開いた状態で exit 1（ダイアログ判定）、閉じた後に exit 0（ready）に
+なることを確認済み。スタブによる回帰確認では ready / dialog / dialog（stdout空）/ 未起動 /
+ready以外 の5経路すべてが期待どおりの終了コードを返す。
+
+なお、タイムアウトそのものは一時的失敗として扱っていない（`is_transient_failure` は
+タイムアウトメッセージに一致しない）。盲目的にリトライすべきでない「真のハング」と同じ扱いのままにし、
+判別は上記のように別コマンドの応答性で行う、という切り分けである。

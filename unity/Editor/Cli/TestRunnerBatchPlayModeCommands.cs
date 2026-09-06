@@ -1,6 +1,5 @@
 #if TESTRUNNER_CLI_AVAILABLE
 using System;
-using Unity.Pipeline;
 using Unity.Pipeline.Commands;
 
 namespace TestRunnerCli

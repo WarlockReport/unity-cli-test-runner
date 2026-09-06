@@ -1,6 +1,6 @@
 {
   "name": "com.warlockreport.unity-cli-test-runner",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "displayName": "Unity CLI Test Runner",
   "description": "Unity CLI（unity cmd, Pipelineサーバー経由）でEditMode/PlayModeテストをバッチ実行するためのカスタムPipelineコマンド集。com.unity.pipelineが未導入の環境ではコンパイル対象から自動的に除外される。",
   "unity": "6000.0",

@@ -52,9 +52,21 @@ scripts/check-editor-ready.sh
 | 終了コード | 意味 | 対応 |
 | --- | --- | --- |
 | 0 | 起動中エディタが見つかり status が ready | 次のステップ（コンパイル状態の確定）へ進む |
-| 1 | 起動中エディタは見つかったが status が ready 以外 | 標準エラー出力のstatus値をそのまま報告し、「ハング・タイムアウト時の対応」に準じてユーザーに状況確認を依頼する |
-| 2 | 起動中エディタが見つからない、リトライ予算（15秒）を使い切ってもなお `unity cmd editor_status` が失敗/タイムアウト | Unityエディタが起動していないか未接続。ユーザーに手動起動を依頼する（ドメインリロード中の一時的な切断はスクリプト内部で自動リトライ済みなので、ここに到達した場合は本当に未起動/未接続の可能性が高い） |
+| 1 | 起動中エディタは見つかったが status が ready 以外、**またはメインスレッドがモーダルダイアログで塞がれている** | 標準エラー出力の内容をそのまま報告する。ダイアログブロックと判定された場合は、エディタの再起動ではなく**開いているダイアログを閉じてもらう**よう依頼する（下記「ダイアログブロックの判別」参照） |
+| 2 | 起動中エディタが見つからない、リトライ予算（15秒）を使い切ってもなお `unity cmd editor_status` が失敗/タイムアウト | Unityエディタが起動していないか未接続。ユーザーに手動起動を依頼する（ドメインリロード中の一時的な切断も、ダイアログブロックもスクリプト内部で判別済みなので、ここに到達した場合は本当に未起動/未接続の可能性が高い） |
 | 3 | 応答は得られたが想定した形式でパースできなかった | 標準出力の生JSONを確認して手動判断する |
+
+**ダイアログブロックの判別（実測済み、2026-09-06）**: `editor_status` は `MainThreadRequired` なので、
+モーダルダイアログでエディタのメインスレッドが塞がれていると「未起動」と区別が付かない形で失敗する。
+そのため `check-editor-ready.sh` は、`editor_status` が失敗した場合にメインスレッド不要の
+`recompile_status` を1回だけ試し、**そちらが正常応答するなら「Pipelineサーバーは生きていて
+メインスレッドだけが塞がれている」= ダイアログブロック**と判定して exit 1 を返す。
+
+`com.unity.pipeline` 0.6 には、この状況を 503 busy（`busyReason="blocked_by_dialog"`）で返す機能が
+入っているが、CHANGELOGが明記する通り「recent enough trunk build」が前提であり、
+**Unity 6000.3.14f1 では有効になっていない**（実測: busy応答ではなく単に
+`Pipeline command 'editor_status' timed out after 30000ms` でタイムアウトし、
+`unity status` も `state:"ready"` としか返さない）。上記の判別はこの版でも効く。
 
 ### 1. コンパイル状態の確定
 
@@ -180,6 +192,11 @@ exit 2を受け取った時点で追加の直接確認を行う必要はない�
 「Sceneの保存確認」モーダルダイアログを表示してエディタのメインスレッドをブロックし、
 それ以降の`unity cmd`呼び出し全体が応答不能になる既知の障害を、発生条件そのものを潰すことで
 回避するため。EditModeのみの実行ではPlayモードに入らないためこの処理は不要。
+
+なお `com.unity.pipeline` 0.6.0-exp.1 以降は、ダイアログでブロックされている状態を
+無応答ではなく busy 応答（`busyReason="blocked_by_dialog"`）として返すため、
+このステップを飛ばしてしまった場合の症状が「無応答」から「予算超過でexit 2＋busy表示」に変わる。
+ただし**この事前保存ステップを省略してよい理由にはならない**（ダイアログが出れば実行は進まない）。
 
 ### 5. 実行
 
@@ -310,12 +327,24 @@ Pass/Fail件数を合算したサマリと、失敗があったグループの�
   Pipelineサーバーが一時的に落ちているだけで、リロード完了とともに自動的に復帰する。
   `ensure-compile-clean.sh`/`run-playmode-test.sh`/`run-tests-batch-playmode.sh`/
   `run-editmode-test.sh`/`run-tests-batch-editmode.sh`/`check-editor-ready.sh` は内部でこれを
-  一時的な切断として扱いポーリング・リトライを続ける（`scripts/_lib.sh` の
-  `is_transient_pipeline_unreachable`）ため、スキル利用者が意識する必要は通常ない。テスト起動
+  一時的失敗として扱いポーリング・リトライを続ける（`scripts/_lib.sh` の
+  `is_transient_failure`）ため、スキル利用者が意識する必要は通常ない。テスト起動
   呼び出し自体（`run_tests`/`run_tests_batch_editmode`/`run_tests_batch_playmode`）がこの瞬断に
   当たるケースも、上記スクリプト経由であれば `run_unity_cmd_resilient`（有限予算の単発リトライ）
   で自動的に吸収される（ADR-0009）。ただし、これらのスクリプトを介さず `unity cmd` を直接叩いた
   際にこのメッセージに遭遇した場合は、「未接続」と即断せず数秒待って再試行すること
+- `com.unity.pipeline` 0.6.0-exp.1 以降は、同種の「今は実行できない」状態をサーバーが HTTP 503 と
+  構造化エンベロープ（`error="Server Busy"` / `status="busy"` / `retryable=true` / `busyReason`）で
+  返すことがある（ADR-0004・ADR-0007の追記）。`busyReason` は `"settling"`（エディタ起動直後の
+  インポート・コンパイル中）と `"blocked_by_dialog"`（モーダルダイアログがメインスレッドを塞いでいる）。
+  上記スクリプトは `is_transient_failure` でこれも一時的失敗として扱いリトライする。
+  ただし **`blocked_by_dialog` の検出は「recent enough trunk build」が前提で、
+  Unity 6000.3.14f1 では有効になっていない**（実測、2026-09-06）。この版でダイアログが開いていると、
+  busy応答ではなくメインスレッド必須コマンドが単にタイムアウトする
+  （`Pipeline command 'X' timed out after Nms`）一方、メインスレッド不要のコマンドは正常応答する。
+  この非対称性がダイアログブロックの実用的な判別方法であり、`check-editor-ready.sh` に実装済み
+  （ステップ0の「ダイアログブロックの判別」参照）。
+  なお `busyReason="settling"`（起動直後）の方は版に関わらず有効なので、busy検出自体は無駄ではない
 - `recompile_status --json` の `data.result` は `test_status`/`batch_test_status` と同様、JSON文字列
   として二重エンコードされている（`jq '.data.result | fromjson | .status'` で取り出す）。トップレベルに
   `.status` が直接あるわけではない点に注意（実地検証済み、2026-08-21）

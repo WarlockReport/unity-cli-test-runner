@@ -2,9 +2,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Unity.Pipeline;
 using Unity.Pipeline.Commands;
-using Unity.Pipeline.Editor.Testing;
 using UnityEditor.TestTools.TestRunner.Api;
 using UnityEngine;
 
