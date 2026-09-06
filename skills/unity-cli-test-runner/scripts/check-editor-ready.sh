@@ -64,11 +64,11 @@ if [ "$success" != "true" ]; then
   # 塞がっていると「未起動」と区別が付かない形で失敗する（実測: Unity 6000.3.14f1 +
   # com.unity.pipeline 0.6.0-exp.1 では 503 busy ではなく単にタイムアウトする。0.6 の
   # blocked_by_dialog 検出は「recent enough trunk build」が前提で、この版には入っていない）。
-  # メインスレッド不要のコマンドが応答するかどうかで両者を判別する。
+  # メインスレッド不要のコマンドが応答するかどうかで両者を判別する（is_blocked_by_dialog、
+  # _lib.sh）。
   #   応答する = Pipelineサーバーは生きている → メインスレッドだけが塞がれている（ダイアログ）
   #   応答しない = 本当に未起動/未接続
-  if run_unity_cmd_capture recompile_status --json --timeout "$CLI_TIMEOUT" >/dev/null 2>&1 &&
-     [ "$(echo "$UNITY_CMD_OUT" | jq -r '.success // empty' 2>/dev/null || true)" = "true" ]; then
+  if is_blocked_by_dialog "$CLI_TIMEOUT"; then
     echo "エディタは起動していますが、メインスレッドが塞がっています（editor_status は失敗する一方、メインスレッド不要の recompile_status は正常応答しました）。" >&2
     echo "モーダルダイアログが開いたままになっている可能性が高いです。Unityエディタを確認し、開いているダイアログを閉じてもらってください（エディタの再起動は不要です）。${message:+（editor_statusの詳細: ${message}）}" >&2
     echo "$raw"
