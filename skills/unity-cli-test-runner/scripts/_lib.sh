@@ -44,6 +44,29 @@ is_transient_failure() {
   is_transient_pipeline_unreachable "$raw" || is_transient_busy "$raw"
 }
 
+# 0.6以降のbusy応答のうち、busyReason="blocked_by_dialog"（モーダルダイアログによる
+# メインスレッドブロック）を明示的に検出する。is_transient_busy はこれも「リトライしてよい
+# 一時的失敗」として扱ってしまうため（実際、リトライしても解消せず予算を浪費するだけになる）、
+# ダイアログブロックを早期に確定させたい呼び出し元（poll_editor_status_settle等）は、
+# is_transient_failure より先にこちらで判定すること。
+is_busy_blocked_by_dialog() {
+  local raw="$1"
+  echo "$raw" | grep -qE '"busyReason"[[:space:]]*:[[:space:]]*"blocked_by_dialog"'
+}
+
+# editor_status（MainThreadRequired）等のメインスレッド必須コマンドが失敗/タイムアウトした際、
+# モーダルダイアログによるメインスレッドブロックかどうかを判別する。
+# メインスレッド不要な recompile_status を1回叩き、応答すれば「Pipelineサーバー自体は生きて
+# いてメインスレッドだけが塞がれている」＝ダイアログブロックと判定する（check-editor-ready.sh
+# のステップ0で先に実測・確認済みだったロジックを共通化したもの）。
+# 戻り値: 0=ダイアログブロックと判定（recompile_statusが正常応答した）
+#         1=判定つかず（recompile_statusも失敗。真のハングの可能性が高い）
+is_blocked_by_dialog() {
+  local timeout="$1"
+  run_unity_cmd_capture recompile_status --json --timeout "$timeout" >/dev/null 2>&1 &&
+    [ "$(echo "$UNITY_CMD_OUT" | jq -r '.success // empty' 2>/dev/null || true)" = "true" ]
+}
+
 # `unity cmd` を1回実行し、結果を2つのグローバル変数へ入れる。
 #   UNITY_CMD_OUT  … 標準出力のみ（jqでパースするのはこちら）
 #   UNITY_CMD_DIAG … 標準出力＋標準エラー（is_transient_failure に渡すのはこちら）

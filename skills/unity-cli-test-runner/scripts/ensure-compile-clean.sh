@@ -26,6 +26,12 @@
 #      盲目的に再試行せず、スキルの「ハング・タイムアウト時の対応」に従う
 #   3  get_console_logsの返り値の形式が想定と異なり、エラー有無を確実に判定できなかった。
 #      標準出力の生JSONを確認して手動判断する
+#   4  内部のunity cmd呼び出し（clear_console/recompile/editor_status/get_console_logsのいずれか）
+#      が失敗/タイムアウトしたが、メインスレッド不要のrecompile_statusは正常応答した
+#      （モーダルダイアログによるメインスレッドブロックの可能性が高い。真のハングではない）。
+#      .unity/.prefabファイルをUnity上で開いた状態のまま外部から変更すると、外部変更確認
+#      （Reload/Ignore等）のダイアログが表示されこの状態になる。ユーザーにダイアログを閉じて
+#      もらうよう依頼する（エディタの再起動は不要）
 #
 # 注意（実測済み、2026-08-21）:
 # - `unity cmd` は `--json` を付けない場合、TSV形式（`Command\tSuccess\tResult\tParameters`）で
@@ -129,7 +135,12 @@ poll_recompile_status() {
 }
 
 # [4/5] editor_status で compiling/domainReloadInProgress が両方falseになるのを
-# SETTLE_REQUIRED_COUNT回連続で確認する。戻り値の意味はpoll_recompile_statusと同じ。
+# SETTLE_REQUIRED_COUNT回連続で確認する。
+# 戻り値: 0=成功 / 1=予算超過（自動リカバリの余地あり） /
+#         2=unity cmd呼び出し自体が非一時的な理由で失敗した（リカバリの余地なし） /
+#         3=editor_statusが失敗し、かつメインスレッド不要のrecompile_statusは正常応答した
+#           （モーダルダイアログによるメインスレッドブロックの可能性が高い。真のハングとは
+#           区別して報告する）
 poll_editor_status_settle() {
   local budget="$1"
   local settled_count=0
@@ -141,13 +152,24 @@ poll_editor_status_settle() {
       raw="$UNITY_CMD_OUT"
       compiling="$(echo "$raw" | jq -r '.data.result.compiling' 2>/dev/null || true)"
       domain_reload="$(echo "$raw" | jq -r '.data.result.domainReloadInProgress' 2>/dev/null || true)"
+    elif is_busy_blocked_by_dialog "$UNITY_CMD_DIAG"; then
+      # is_transient_failure より先に判定する。busyReason=blocked_by_dialog は
+      # is_transient_busy にも一致してしまい、そちらを先に見るとリトライを続けて
+      # 予算を使い切るまでダイアログブロックと確定できない（0.6以降でこの応答が
+      # 有効な環境向けの早期検知）。
+      echo "editor_status がダイアログブロックのbusy応答（busyReason=blocked_by_dialog）を返しました。モーダルダイアログによるメインスレッドブロックの可能性が高いです（ハングではありません）。" >&2
+      return 3
     elif is_transient_failure "$UNITY_CMD_DIAG"; then
-      # まさにドメインリロード中、またはサーバーがbusy（0.6以降）なので不安定とみなし、
-      # 連続カウントをリセットして続行する
+      # まさにドメインリロード中、またはサーバーがbusy（0.6以降、settlingのみ）なので
+      # 不安定とみなし、連続カウントをリセットして続行する
       raw="$UNITY_CMD_DIAG"
       echo "  一時的失敗を検知（ドメインリロード中、またはサーバーbusy）。安定確認カウントをリセットして継続。" >&2
       compiling="true"
       domain_reload="true"
+    elif is_blocked_by_dialog "$CLI_TIMEOUT"; then
+      # busy応答が無効な版（Unity 6000.3.14f1等）向けのタイムアウトベースの判別。
+      echo "editor_status が失敗/タイムアウトしましたが、メインスレッド不要の recompile_status は正常応答しました。モーダルダイアログによるメインスレッドブロックの可能性が高いです（ハングではありません）。" >&2
+      return 3
     else
       echo "editor_status が失敗/タイムアウトしました。" >&2
       return 2
@@ -176,10 +198,9 @@ poll_editor_status_settle() {
 
 # 予算超過後の1回限りの自動リカバリ。$2にはリカバリ対象のポーリング関数名を渡す
 # （poll_recompile_status または poll_editor_status_settle）。
-# 戻り値: 0=リカバリ後に成功 / 非0=失敗（呼び出し元にはこれ以上の区別は不要なので
-# 一律非0を返す。「回復未確認で未実施」と「リカバリを試みたが失敗」の違いは、
-# ここで出力するメッセージ自体が示すため、呼び出し元の追加メッセージで矛盾させない
-# ようにする）
+# 戻り値: 0=リカバリ後に成功 / 1=失敗（回復していない。真のハングの可能性） /
+#         2=失敗、かつメインスレッド不要のrecompile_statusは正常応答した
+#           （モーダルダイアログによるメインスレッドブロックの可能性が高い）
 retry_once_if_recovered() {
   local label="$1"
   local poll_fn="$2"
@@ -187,26 +208,50 @@ retry_once_if_recovered() {
 
   echo "  予算超過。editor_statusを直接確認し、回復していれば1回だけ自動リカバリします。" >&2
   if ! is_editor_ready_now; then
+    if is_blocked_by_dialog "$CLI_TIMEOUT"; then
+      echo "  直接確認でも回復していませんでしたが、メインスレッド不要の recompile_status は正常応答しました。モーダルダイアログによるメインスレッドブロックの可能性が高いです（ハングではありません）。" >&2
+      return 2
+    fi
     echo "  直接確認でも回復していませんでした。自動リカバリは行わず、ハング・タイムアウト時の対応に従ってください。" >&2
     return 1
   fi
 
   echo "  editor_statusはreadyでした。予算をリセットして${label}を1回だけやり直します（自動リカバリ）。" >&2
+  local retry_rc
   if "$poll_fn" "$budget"; then
     return 0
+  else
+    retry_rc=$?
+  fi
+  if [ "$retry_rc" -eq 3 ]; then
+    # poll_editor_status_settle がやり直し中に改めてダイアログブロックを検知したケース。
+    # 真のハングではないので、この情報を握り潰さず呼び出し元へ伝える。
+    return 2
   fi
   echo "  自動リカバリ（${label}のやり直し）も失敗しました。ハング・タイムアウト時の対応に従ってください。" >&2
   return 1
 }
 
+# ダイアログブロック検知時の統一メッセージを出してexit 4する。
+report_dialog_block_and_exit() {
+  echo "モーダルダイアログが開いている可能性が高いです（ハングではありません）。Unityエディタを確認し、開いているダイアログを閉じてください（Reload/Ignore等の外部変更確認ダイアログの可能性が高いです。.unity/.prefabファイルをUnity上で開いた状態のまま外部から変更するとこの状態になります）。エディタの再起動は不要です。" >&2
+  exit 4
+}
+
 echo "[1/5] clear_console" >&2
 if ! run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" clear_console >/dev/null; then
+  if is_blocked_by_dialog "$CLI_TIMEOUT"; then
+    report_dialog_block_and_exit
+  fi
   echo "clear_console が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
   exit 2
 fi
 
 echo "[2/5] recompile" >&2
 if ! run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" recompile >/dev/null; then
+  if is_blocked_by_dialog "$CLI_TIMEOUT"; then
+    report_dialog_block_and_exit
+  fi
   echo "recompile が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
   exit 2
 fi
@@ -224,7 +269,13 @@ case "$step3_rc" in
     exit 2
     ;;
   *)
-    if ! retry_once_if_recovered "recompile_statusポーリング" poll_recompile_status "$POLL_BUDGET_SECONDS"; then
+    if retry_once_if_recovered "recompile_statusポーリング" poll_recompile_status "$POLL_BUDGET_SECONDS"; then
+      : # 成功。テスト対象の解決へ進む
+    else
+      recovery_rc=$?
+      if [ "$recovery_rc" -eq 2 ]; then
+        report_dialog_block_and_exit
+      fi
       exit 2
     fi
     ;;
@@ -242,8 +293,17 @@ case "$step4_rc" in
     echo "ハング・タイムアウト時の対応に従ってください。" >&2
     exit 2
     ;;
+  3)
+    report_dialog_block_and_exit
+    ;;
   *)
-    if ! retry_once_if_recovered "editor_status安定確認" poll_editor_status_settle "$POLL_BUDGET_SECONDS"; then
+    if retry_once_if_recovered "editor_status安定確認" poll_editor_status_settle "$POLL_BUDGET_SECONDS"; then
+      : # 成功。結果報告へ進む
+    else
+      recovery_rc=$?
+      if [ "$recovery_rc" -eq 2 ]; then
+        report_dialog_block_and_exit
+      fi
       exit 2
     fi
     ;;
@@ -251,6 +311,9 @@ esac
 
 echo "[5/5] get_console_logs --severity error" >&2
 if ! logs_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" get_console_logs --severity error --limit 20 --json)"; then
+  if is_blocked_by_dialog "$CLI_TIMEOUT"; then
+    report_dialog_block_and_exit
+  fi
   echo "get_console_logs が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
   exit 2
 fi
