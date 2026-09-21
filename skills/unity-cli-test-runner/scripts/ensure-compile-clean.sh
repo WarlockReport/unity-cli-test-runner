@@ -44,8 +44,11 @@
 #   フォールバックし続け、ポーリングが常にタイムアウトする）
 # - recompile_status --json の data.result は他コマンド（run_tests/list_tests）と異なり
 #   JSON文字列として二重エンコードされている（test_statusと同じ形）。中身は
-#   {status, failed, errors} で、statusは triggered/compiling/completed/up_to_date を取る。
-#   `jq '.data.result | fromjson | .status'` で取り出す
+#   {status, failed, errors, compilationFailed} で、statusは
+#   triggered/compiling/completed/up_to_date/failed を取る（failedは0.7でコンパイルエラーが
+#   残っている場合。このスクリプトはポーリングの終端として扱い、エラー有無の判定は
+#   ステップ5に一本化している）。`jq '.data.result | fromjson | .status'` 相当の
+#   取り出しは read_result_field が行う
 # - editor_status --json / console --json の data.result はネイティブなJSONオブジェクト
 #   （二重エンコードされていない）。editor_statusは {status, compiling, domainReloadInProgress,
 #   playMode, ...}、consoleは {entries, cursor, session, returned, dropped, reset,
@@ -112,7 +115,7 @@ poll_recompile_status() {
   while [ "$elapsed" -lt "$budget" ]; do
     if run_unity_cmd_capture recompile_status --json --timeout "$CLI_TIMEOUT"; then
       raw="$UNITY_CMD_OUT"
-      status="$(echo "$raw" | jq -r '.data.result | fromjson | .status' 2>/dev/null || true)"
+      status="$(read_result_field "$raw" status)"
     elif is_transient_failure "$UNITY_CMD_DIAG"; then
       # ドメインリロード中の一時的な切断、またはサーバーのbusy応答（0.6以降）とみなし、
       # ハング扱いにせずポーリングを続行する（経過秒数はbudgetから消費されるため、
@@ -126,7 +129,11 @@ poll_recompile_status() {
     fi
 
     case "$status" in
-      completed|up_to_date)
+      # failed も終端状態として扱う。0.7 は recompile が status:"failed" を返した後の
+      # recompile_status でもこの値を返しうる。ここでは完了か否かだけを判定し、
+      # コンパイルエラーの有無の判定はステップ5に一本化する（この関数で exit 1 に
+      # 分岐させると、ドメインリロード完了の安定確認を飛ばすことになるため）。
+      completed|up_to_date|failed)
         return 0
         ;;
     esac
@@ -298,12 +305,22 @@ if ! run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" clea
 fi
 
 echo "[2/5] recompile" >&2
-if ! run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" recompile >/dev/null; then
+# --json を必ず付ける（付けないとTSV形式で返り、status を jq で読めない）。
+# 0.7 の recompile は、コンパイルエラーが残っている状態では status:"failed" を返す
+# （0.6 では同じ状況で up_to_date を返し、エラーの記録が消えていた）。この場合は
+# 変更が無くコンパイルも走らないため、ポーリングしても状態は変わらない。待つ意味が
+# 無いので、そのまま詳細取得へ飛ばす。
+if ! recompile_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" recompile --json)"; then
   if is_blocked_by_dialog "$CLI_TIMEOUT"; then
     report_dialog_block_and_exit
   fi
   echo "recompile が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
   exit 2
+fi
+
+if [ "$(read_result_field "$recompile_raw" status)" = "failed" ]; then
+  echo "recompile が status:\"failed\" を返しました（コンパイルエラーが残っています）。ポーリングを飛ばして詳細取得へ進みます。" >&2
+  report_compile_failure_and_exit "$recompile_raw" 'recompile: status="failed"'
 fi
 
 echo "[3/5] recompile_status をポーリング（予算 ${POLL_BUDGET_SECONDS}秒）" >&2
