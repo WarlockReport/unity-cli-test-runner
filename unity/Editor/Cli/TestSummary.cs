@@ -4,8 +4,7 @@ using System;
 namespace TestRunnerCli
 {
     /// <summary>テスト実行結果の集計。com.unity.pipeline 0.6.0-exp.1 で
-    /// <c>Unity.Pipeline.TestSummary</c> がinternal化されたため、同等のモデルを本パッケージ側で持つ
-    /// （ADR-0012）。</summary>
+    /// <c>Unity.Pipeline.TestSummary</c> がinternal化されたため、同等のモデルを本パッケージ側で持つ。</summary>
     [Serializable]
     public sealed class TestSummary
     {

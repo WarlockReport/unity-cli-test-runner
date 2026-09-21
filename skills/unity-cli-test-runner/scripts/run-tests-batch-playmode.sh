@@ -25,7 +25,7 @@
 # 実測で確認されている（_lib.sh参照）。batch_test_statusポーリング中にこれを検知した場合は
 # ハング扱いにせずポーリングを継続する。また、run_tests_batch_playmode の起動呼び出し
 # 自体がこの瞬断に当たることもあるため、こちらは run_unity_cmd_resilient（有限予算の
-# 単発リトライ）で吸収する（ADR-0009）。
+# 単発リトライ）で吸収する。
 
 set -euo pipefail
 

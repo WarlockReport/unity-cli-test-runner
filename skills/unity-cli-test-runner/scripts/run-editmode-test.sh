@@ -4,7 +4,7 @@
 # 1コマンドにまとめる。run_tests --mode EditMode を run_unity_cmd_resilient 経由で呼び、テスト起動
 # 直後のドメインリロードによる一時的なPipeline切断（_lib.sh参照）を吸収する。
 # EditModeの run_tests は同期応答のため、PlayMode版（run-playmode-test.sh）と異なりポーリングは
-# 不要で、この起動呼び出し1回のみで完結する（ADR-0009）。
+# 不要で、この起動呼び出し1回のみで完結する。
 #
 # 使い方: run-editmode-test.sh <filter> <filter_type> [timeout(既定120)]
 #

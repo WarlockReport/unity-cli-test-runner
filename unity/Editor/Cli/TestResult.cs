@@ -4,8 +4,8 @@ using System;
 namespace TestRunnerCli
 {
     /// <summary>個々のテスト結果。com.unity.pipeline 0.6.0-exp.1 で
-    /// <c>Unity.Pipeline.TestResult</c> がinternal化されたため、同等のモデルを本パッケージ側で持つ
-    /// （ADR-0012）。フィールド名はパッケージ本体と一致させてあり、JSONの形は0.5時代と変わらない。</summary>
+    /// <c>Unity.Pipeline.TestResult</c> がinternal化されたため、同等のモデルを本パッケージ側で持つ。
+    /// フィールド名はパッケージ本体と一致させてあり、JSONの形は0.5時代と変わらない。</summary>
     [Serializable]
     public sealed class TestResult
     {

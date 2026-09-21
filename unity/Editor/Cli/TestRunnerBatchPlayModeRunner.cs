@@ -11,7 +11,7 @@ namespace TestRunnerCli
     /// <summary>PlayModeバッチ実行のオーケストレーション。Play Mode突入によるドメインリロードを
     /// 越えて完了通知を受け取るため、リクエスト/ステータスをTemp/配下のファイルへ永続化する。
     /// com.unity.pipelineパッケージ本体のPipelineTestRunnerと同型のパターンだが、結果収集自体は
-    /// 本パッケージの <see cref="TestResultCollector"/>（同パッケージ0.6版からの移植。ADR-0012）に任せる。</summary>
+    /// 本パッケージの <see cref="TestResultCollector"/>（同パッケージ0.6版からの移植）に任せる。</summary>
     internal static class TestRunnerBatchPlayModeRunner
     {
         private const string RequestFilePath = "Temp/testrunner_cli_batch_request.json";
