@@ -13,6 +13,8 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 
 ## 前提
 
+- 対象Unityプロジェクトの `com.unity.pipeline` は **0.7.0-exp.1 以降**であること（0.6 以前は
+  非対応）
 - 各コマンドには必ず明示的な `--timeout <秒>` を付ける（内部で呼ぶスクリプト側が既定値を持つ）
 - 本ドキュメント中の `scripts/...` は、`unity-cli-test-runner` スキルのディレクトリ配下にある
   スクリプトを相対パス `../unity-cli-test-runner/scripts/...` で参照する（ロジックの複製を避けるため。
@@ -46,7 +48,9 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 ```
 
 `clear_console → recompile → recompile_status ポーリング → editor_status によるドメインリロード
-完了の安定確認 → get_console_logs(error)` を順に実行する（詳細・自動リカバリの挙動は
+完了の安定確認 → recompile_status の読み直し（判定）＋ console(error) での詳細取得` を順に
+実行する（コンパイルエラーの判定は `recompile_status` の `failed`/`compilationFailed` が一次情報で、
+`console` は詳細取得専用。詳細・自動リカバリの挙動は
 `unity-cli-test-runner` スキルの該当箇所を参照。ロジックは完全に共通）。
 
 | 終了コード | 意味 | 対応 |
@@ -54,8 +58,8 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 | 0 | コンパイル確定・ドメインリロードも完了・エラー無し | 次のステップ（結果報告）へ進む |
 | 1 | コンパイルエラーを検出（標準出力に詳細） | エラー内容をそのまま報告して終了する |
 | 2 | ポーリング予算超過（`unity cmd`呼び出し自体の失敗を含む。スクリプト内自動リカバリを試みても解消しなかった） | 盲目的に再試行せず、呼び出し元にハング・タイムアウトの可能性をそのまま報告する |
-| 3 | `get_console_logs` の返り値の形式が想定と異なり判定不能 | 標準出力の生JSONを確認して手動判断する |
-| 4 | 内部の`unity cmd`呼び出し（`clear_console`/`recompile`/`editor_status`/`get_console_logs`のいずれか）が失敗したが、メインスレッド不要の `recompile_status` は正常応答した（モーダルダイアログによるメインスレッドブロックの可能性が高い。**真のハングではない**） | ハングとして扱わず、ユーザーにダイアログを閉じてもらうよう依頼する（エディタの再起動は不要）。`.unity`/`.prefab`ファイルをUnity上で開いた状態のまま外部から変更すると、外部変更確認ダイアログが出てこの状態になることが多い |
+| 3 | `recompile_status` から `failed`/`compilationFailed` を取り出せず判定不能（`console` の応答が想定外なだけなら exit 1 になる） | 標準出力の生JSONを確認して手動判断する |
+| 4 | 内部の`unity cmd`呼び出し（`clear_console`/`recompile`/`editor_status`のいずれか）が失敗したが、メインスレッド不要の `recompile_status` は正常応答した（モーダルダイアログによるメインスレッドブロックの可能性が高い。**真のハングではない**） | ハングとして扱わず、ユーザーにダイアログを閉じてもらうよう依頼する（エディタの再起動は不要）。`.unity`/`.prefab`ファイルをUnity上で開いた状態のまま外部から変更すると、外部変更確認ダイアログが出てこの状態になることが多い |
 
 複数ファイルにまたがる大きめの修正の直後はドメインリロードが長引く傾向があるため、既定を
 待たずに第1引数で予算を伸ばしてよい（例: `ensure-compile-clean.sh 120`）。
@@ -63,7 +67,9 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 ### 2. 結果報告
 
 - 終了コード0: 「コンパイルエラー無し」と簡潔に報告する
-- 終了コード1: 検出したエラー件数と詳細（`get_console_logs` の出力）をそのまま報告する
+- 終了コード1: 検出したエラーの詳細（`console` の出力。詳細が取れなかった場合は判定根拠となった
+  `recompile_status` の応答）をそのまま報告する。`console` の `entries` が空でもコンパイルエラーは
+  実在する（判定は `recompile_status` が一次情報）ので、「エラー無し」と読み替えてはならない
 - 終了コード2: ハング・タイムアウトの可能性を報告し、同じ呼び出しを盲目的に再試行しない
 - 終了コード3: 生JSONを添えて手動判断を仰ぐ
 - 終了コード4: ハングではなくモーダルダイアログによるメインスレッドブロックの可能性が高い旨を報告し、
@@ -78,6 +84,11 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 コンパイル完了直後・ドメインリロード中の一時的なPipeline切断など、`unity-cli-test-runner` スキルの
 「既知の罠」に記載された注意点は `ensure-compile-clean.sh` 内部でそのまま吸収される（ロジック共通の
 ため、このスキル固有の追加事項は無い）。
+
+ただし報告の際は、同スキルの「既知の罠」にある `console` 関連の4件（`get_console_logs` は 0.7 に
+存在しない／`console` の sticky backfill と cursor／`compilationFailed` の2秒鮮度／`clear_console`
+は sticky なコンパイルエラーを消さない）を踏まえること。特に **`console` の出力に出たエラーが
+「今回の修正で出たもの」とは限らない**（sticky エントリは次のコンパイル完了まで残る）。
 
 ## 禁止事項
 

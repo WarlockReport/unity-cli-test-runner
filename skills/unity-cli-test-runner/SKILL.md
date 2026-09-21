@@ -16,6 +16,8 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 
 ## 前提
 
+- 対象Unityプロジェクトの `com.unity.pipeline` は **0.7.0-exp.1 以降**であること。0.6 以前は
+  非対応（0.7 で `get_console_logs` が削除され、コンパイルエラーの判定方法が変わったため）
 - 各コマンドには必ず明示的な `--timeout <秒>` を付ける
 - エディタの起動確認はワークフローのステップ0（`scripts/check-editor-ready.sh`）で行う
 - 本ドキュメント中の `scripts/...` はすべて、このスキル自身のディレクトリからの相対パスである。
@@ -62,8 +64,9 @@ scripts/check-editor-ready.sh
 `recompile_status` を1回だけ試し、**そちらが正常応答するなら「Pipelineサーバーは生きていて
 メインスレッドだけが塞がれている」= ダイアログブロック**と判定して exit 1 を返す。
 
-`com.unity.pipeline` 0.6 には、この状況を 503 busy（`busyReason="blocked_by_dialog"`）で返す機能が
-入っているが、CHANGELOGが明記する通り「recent enough trunk build」が前提であり、
+`com.unity.pipeline` 0.6 以降には、この状況を 503 busy（`busyReason="blocked_by_dialog"`）で返す
+機能が入っているが（0.7.0-exp.1 の `BasePipelineServer.cs` は該当箇所が 0.6 と同一で、
+挙動も変わらない見込み）、CHANGELOGが明記する通り「recent enough trunk build」が前提であり、
 **Unity 6000.3.14f1 では有効になっていない**（実測: busy応答ではなく単に
 `Pipeline command 'editor_status' timed out after 30000ms` でタイムアウトし、
 `unity status` も `state:"ready"` としか返さない）。上記の判別はこの版でも効く。
@@ -79,8 +82,12 @@ scripts/ensure-compile-clean.sh
 ```
 
 このスクリプトは `clear_console → recompile → recompile_status ポーリング → editor_status によるドメイン
-リロード完了の安定確認 → get_console_logs(error)` を順に実行し、以下の終了コードを返す（`unity` CLI と
-`jq` がPATH上にあることが前提）。第1引数でポーリング予算秒数を上書きできる（既定60秒。この予算は
+リロード完了の安定確認 → recompile_status の読み直し（判定）＋ console（詳細取得）` を順に実行し、
+以下の終了コードを返す（`unity` CLI と `jq` がPATH上にあることが前提）。コンパイルエラーの
+**判定**は `recompile_status` の `failed`/`compilationFailed` を一次情報とし、`console` は
+**詳細取得専用**である。そのため詳細が取れなくても（`entries` が空でも、`console`
+呼び出し自体が失敗しても）判定は覆らず `exit 1` になる。また `recompile` が
+`status:"failed"` を返した場合は、ポーリングを飛ばして直ちに詳細取得へ進む。第1引数でポーリング予算秒数を上書きできる（既定60秒。この予算は
 recompile_statusポーリングとeditor_statusによる安定確認の両方に個別適用され、さらに各ステップは
 予算超過時に1回だけ自動リカバリ（下記「自動リカバリ」参照）を試みるため、全体の最大所要時間は
 指定値の4倍強（既定なら最大240秒＋自動リカバリの直接確認分、最大30秒程度）になりうる）。
@@ -93,8 +100,8 @@ recompile_statusポーリングとeditor_statusによる安定確認の両方に
 | 0 | コンパイル確定・ドメインリロードも完了・エラー無し | 次のステップ（テスト対象の解決）へ進む |
 | 1 | コンパイルエラーを検出（標準出力に詳細） | テスト対象の解決に進まず、エラー内容をそのまま報告して終了する |
 | 2 | ポーリング予算超過（`unity cmd`呼び出し自体の失敗を含む） | 「ハング・タイムアウト時の対応」に従う（盲目的に再試行しない） |
-| 3 | `get_console_logs` の返り値の形式が想定と異なり判定不能 | 標準出力の生JSONを確認して手動判断する |
-| 4 | 内部の`unity cmd`呼び出し（`clear_console`/`recompile`/`editor_status`/`get_console_logs`のいずれか）が失敗したが、メインスレッド不要の `recompile_status` は正常応答した（モーダルダイアログによるメインスレッドブロックの可能性が高い。**真のハングではない**） | ユーザーにダイアログを閉じてもらうよう依頼する（エディタの再起動は不要）。`.unity`/`.prefab`ファイルをUnity上で開いた状態のまま外部から変更すると、外部変更確認（Reload/Ignore等）のダイアログが表示されこの状態になることが多い（下記「既知の罠」参照） |
+| 3 | `recompile_status` から `failed`/`compilationFailed` を取り出せず判定不能（`console` の応答が想定外なだけなら、判定は済んでいるので exit 3 ではなく exit 1 になる） | 標準出力の生JSONを確認して手動判断する |
+| 4 | 内部の`unity cmd`呼び出し（`clear_console`/`recompile`/`editor_status`のいずれか）が失敗したが、メインスレッド不要の `recompile_status` は正常応答した（モーダルダイアログによるメインスレッドブロックの可能性が高い。**真のハングではない**） | ユーザーにダイアログを閉じてもらうよう依頼する（エディタの再起動は不要）。`.unity`/`.prefab`ファイルをUnity上で開いた状態のまま外部から変更すると、外部変更確認（Reload/Ignore等）のダイアログが表示されこの状態になることが多い（下記「既知の罠」参照） |
 
 **注意（実測済み、既知の罠も参照）**: コンパイル完了直後の1〜2秒間、ドメインリロード（アセンブリの
 再読み込み）によりUnity側のPipelineサーバーが一時的にダウンし、`unity cmd` が
@@ -400,6 +407,26 @@ JSON（`test_status`由来。`status`/`duration`/`summary`/`results`を含む。
   ただし発生自体を防げるわけではないので、テスト対象プロジェクトで `.unity`/`.prefab` を編集する
   作業では、対象がUnity上で開かれていないか（開いていれば閉じるかリロードしてもらうか）を
   事前に意識しておくとダイアログの発生自体を避けられる
+- **`get_console_logs` は `com.unity.pipeline` 0.7.0-exp.1 に存在しない**（ソースから削除済み。
+  CHANGELOG にのみ残る）。0.6 向けに書かれた手順をそのまま流用すると `Command Not Found` で
+  失敗する。代わりに `console`（引数: `--tail`（既定100）/ `--level log|warn|error`（**下限**
+  severity）/ `--since` / `--since_session`）を使う。`console` の `entries[]` は `logType` で
+  Unity の正確な LogType（Exception/Assert の区別を含む）を持つ
+- `console` は Editor コンソール自身のストアから **backfill** する。キャプチャ開始前に記録された
+  コンパイルエラーは sticky エントリとして残り、次のコンパイル完了まで消えないため、`console`
+  の結果には「今回の実行で出たわけではないエラー」が混ざりうる。また cursor まわりに
+  `since` / `since_session` / `reset` / `dropped` があり、過去セッションの cursor を渡すと
+  空ではなく `reset=true` / `dropped=true` 付きの末尾が返る。件数だけを見て判断しない
+- `console` / `recompile_status` が返す `compilationFailed` は、Unity のネイティブなコンパイル
+  失敗フラグを**2秒以内にサンプリングできた場合にのみ**有効で、古ければ false に倒れる。
+  サンプリングはメインスレッドで動くため、ドメインリロード中・ダイアログブロック中は止まる。
+  `ensure-compile-clean.sh` がドメインリロード完了の安定確認**後**に `recompile_status` を
+  読み直しているのはこのためで、この順序を崩すと「エラーがあるのに false」を拾いうる
+- `clear_console` は sticky なコンパイルエラーを消さない（Unity の `LogEntries.Clear` が
+  skip するため）。「コンソールをクリアしたのにエラーが残っている」のは正常な挙動であり、
+  クリア後にエラーが見えることを「前回の残骸だから無視してよい」と解釈してはならない。
+  なお `clear_console` は 0.7 でも `MainThreadRequired` が既定（true）のままなので、
+  依然ダイアログでブロックされうる（`exit 4` の経路）
 
 ## 禁止事項
 
