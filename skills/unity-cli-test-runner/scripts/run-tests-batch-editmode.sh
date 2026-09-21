@@ -4,7 +4,7 @@
 # 1コマンドにまとめる。run_tests_batch_editmode を run_unity_cmd_resilient 経由で呼び、起動直後の
 # ドメインリロードによる一時的なPipeline切断（_lib.sh参照）を吸収する。run_tests_batch_editmode は
 # 同期応答のため、PlayMode版（run-tests-batch-playmode.sh）と異なりポーリングは不要で、この起動
-# 呼び出し1回のみで完結する（ADR-0009）。
+# 呼び出し1回のみで完結する。
 #
 # 使い方: run-tests-batch-editmode.sh <カンマ区切りFullName> [timeout(既定120)]
 #

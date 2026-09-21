@@ -7,7 +7,7 @@ namespace TestRunnerCli
 {
     /// <summary>テスト実行コマンドの戻り値。com.unity.pipeline 0.6.0-exp.1 で
     /// <c>Unity.Pipeline.TestExecutionResponse</c> がinternal化されたため、同等のモデルを
-    /// 本パッケージ側で持つ（ADR-0012）。基底の <see cref="CommandExecutionResponse"/> は
+    /// 本パッケージ側で持つ。基底の <see cref="CommandExecutionResponse"/> は
     /// 0.6でもpublicのままなので、公式ドキュメント（Documentation~/creating-commands.md）が
     /// 正規の作法として挙げる「CommandExecutionResponseを継承した独自モデルを返す」形に沿う。
     ///

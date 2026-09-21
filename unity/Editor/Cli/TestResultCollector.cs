@@ -8,7 +8,7 @@ namespace TestRunnerCli
 {
     /// <summary>Unity Test Runner APIのコールバックからテスト結果を収集する。
     /// com.unity.pipeline 0.6.0-exp.1 で <c>Unity.Pipeline.Editor.Testing.TestResultCollector</c> が
-    /// internal化されたため、同パッケージ0.6版の実装を本パッケージへ移植したもの（ADR-0012）。
+    /// internal化されたため、同パッケージ0.6版の実装を本パッケージへ移植したもの。
     ///
     /// 本体からの差分は2点だけで、いずれも本パッケージでの用途に合わせた削減:
     /// - 同期モード（WaitForCompletionAsync / SetError / TaskCompletionSource）を持たない。

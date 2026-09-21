@@ -7,7 +7,7 @@ using UnityEditor.TestTools.TestRunner.Api;
 namespace TestRunnerCli
 {
     /// <summary>run_tests_batch_editmode/run_tests_batch_playmode共通のフルネーム解析・
-    /// レスポンス組み立てヘルパー。ロジックは持たず、本パッケージのモデル（ADR-0012でベンダリング）を
+    /// レスポンス組み立てヘルパー。ロジックは持たず、本パッケージ側で持つモデルを
     /// 組み立てるだけ。</summary>
     internal static class TestRunnerCliUtility
     {

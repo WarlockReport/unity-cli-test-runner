@@ -65,7 +65,7 @@
 #   （retryable=true / busyReason=settling|blocked_by_dialog）で返すこともある。
 #   _lib.sh の is_transient_failure が両方をまとめて一時的失敗として扱う
 #
-# 自動リカバリ（実測済み、2026-08-22、ADR-0011）:
+# 自動リカバリ（実測済み、2026-08-22）:
 # - 実運用で、ステップ3/4のポーリングが予算超過して exit 2 になった直後にコントローラーが
 #   `unity cmd editor_status` を直接叩くと実はreadyだった（＝一時切断が予算を使い切った後に
 #   ちょうど解消していた）というケースが6回中2回観測された。これはドメインリロードの想定
