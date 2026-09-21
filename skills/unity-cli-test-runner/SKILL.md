@@ -104,7 +104,7 @@ recompile_statusポーリングとeditor_statusによる安定確認の両方に
 これにより「ドメインリロードが終わりきる前にテスト対象の解決へ進んでしまう」誤りと、「一時的な
 切断1回だけでハング扱いにしてしまう」誤りの両方を防いでいる。
 
-**自動リカバリ（実測済み、2026-08-22、ADR-0011）**: 上記の想定（一時切断は1〜2秒で解消する）を
+**自動リカバリ**: 上記の想定（一時切断は1〜2秒で解消する）を
 超える長さの切断が実運用で観測されている。そのためこのスクリプトは、recompile_statusポーリング・
 editor_status安定確認のいずれかが予算超過した場合、即 `exit 2` にせず (a) `editor_status` を直接
 確認し（この確認自体が一時切断に当たって誤判定しないよう、最大15秒は一時切断のみリトライする）、
@@ -152,9 +152,8 @@ exit 2を受け取った時点で追加の直接確認を行う必要はない�
     またはgrepなら `\.ClassName\.` のように前後にドットを含むパターンを使う）。単純な部分一致では、
     対象クラス名が別クラス名の末尾に含まれるだけのケース（例: `FooTest` を検索したつもりが
     `BarFooTest` のメソッドまで一致してしまう）で候補数を誤カウントする
-    （実地確認済み、2026-08-22。ADR-0010参照。この事例では `run_tests` 側のfilterは厳密一致で
-    実行結果自体は正しかったが、ステップ2の候補数とステップ6の期待件数比較が食い違い、
-    誤った異常検知につながった）
+    （ `run_tests` 側のfilterは厳密一致で実行結果自体は正しかったが、
+    ステップ2の候補数とステップ6の期待件数比較が食い違い、誤った異常検知につながった事例あり）
   - 0件: 誤字や存在しないテスト名の可能性を報告する
   - 1件: そのまま次へ
   - 1アセンブリの全件に一致: ステップ5で `--filter_type assembly` を使う
@@ -201,13 +200,16 @@ exit 2を受け取った時点で追加の直接確認を行う必要はない�
 
 ### 5. 実行
 
-対象に含まれる `Mode` によって実行方法が異なる。
+対象に含まれる `Mode` によって実行方法が異なる。**いずれの方法でも、標準出力を一時ファイルへ
+保存する（`OUT="$(mktemp -t unity-test)"` を用意し `> "$OUT"` でリダイレクトする）。ステップ6では
+この `$OUT` をそのまま使い、テストをここで再実行しない。**
 
 **`Mode: EditMode` のみの場合**（`scripts/run-editmode-test.sh` を必ず使う。直接
 `unity cmd run_tests --mode EditMode` を呼んではならない — 「禁止事項」参照）:
 
 ```
-scripts/run-editmode-test.sh <値> <testName|assembly> [timeout]
+OUT="$(mktemp -t unity-test)"
+scripts/run-editmode-test.sh <値> <testName|assembly> [timeout] > "$OUT"
 ```
 
 このスクリプトが `run_tests` の起動呼び出しをテスト起動直後のドメインリロードによる一時的な
@@ -219,14 +221,15 @@ Pipeline切断（「既知の罠」参照）に対して有限予算でリトラ
 `unity cmd run_tests --mode PlayMode` を呼んではならない — 「禁止事項」参照）:
 
 ```
-scripts/run-playmode-test.sh <値> <testName|assembly> [timeout] [ポーリング予算秒数]
+OUT="$(mktemp -t unity-test)"
+scripts/run-playmode-test.sh <値> <testName|assembly> [timeout] [ポーリング予算秒数] > "$OUT"
 ```
 
 このスクリプトが `run_tests --async_tests` の実行から `test_status` の完了確認・結果の簡易整合性
 チェックまでを1コマンドにまとめる（詳細は同スクリプトのヘッダコメント参照）。標準出力に最終結果
 JSON（`test_status`由来。`status`/`duration`/`summary`/`results`を含む。EditModeの`run_tests`直接
-呼び出しとはキーの大文字小文字が異なる点に注意。詳細はステップ6参照）が出力されるので、これを
-ステップ6の結果確認に使う。
+呼び出しとはキーの大文字小文字が異なる点に注意。詳細はステップ6参照）が `$OUT` へ保存されるので、
+これをステップ6の結果確認に使う。
 
 - 単一テスト: `--filter_type testName` に ステップ2で確認した完全一致の `FullName` を渡す
 - クラス一括: `--filter_type testName` にクラス名を渡す（ステップ2「単一クラスに閉じた複数件」参照）
@@ -239,11 +242,11 @@ JSON（`test_status`由来。`status`/`duration`/`summary`/`results`を含む。
   する（`list_tests` 等の照会系は `30`）。`run-playmode-test.sh` の `timeout` 引数（第3引数）も
   同様の目安、ポーリング予算秒数（第4引数、既定90）は対象規模に応じて調整してよい
 
-**バッチコマンド（複数クラス横断）を使う場合**:
+**バッチコマンド（複数クラス横断）を使う場合**（同様に `> "$OUT"` で保存する）:
 
-- EditMode: `scripts/run-tests-batch-editmode.sh <カンマ区切りFullName> [timeout]`（直接 `unity cmd
-  run_tests_batch_editmode` を呼ばない。「禁止事項」参照）
-- PlayMode: `scripts/run-tests-batch-playmode.sh <カンマ区切りFullName> [timeout] [ポーリング予算秒数]`（直接 `unity cmd run_tests_batch_playmode` を呼ばない。「禁止事項」参照）
+- EditMode: `scripts/run-tests-batch-editmode.sh <カンマ区切りFullName> [timeout] > "$OUT"`（直接
+  `unity cmd run_tests_batch_editmode` を呼ばない。「禁止事項」参照）
+- PlayMode: `scripts/run-tests-batch-playmode.sh <カンマ区切りFullName> [timeout] [ポーリング予算秒数] > "$OUT"`（直接 `unity cmd run_tests_batch_playmode` を呼ばない。「禁止事項」参照）
 
 **複数グループがある場合の失敗時の扱い**: テストのPass/Failは通常の結果として扱い、他のグループの
 実行を止めない。`unity cmd` 呼び出し自体のハング・タイムアウトは「ハング・タイムアウト時の対応」に
@@ -251,8 +254,7 @@ JSON（`test_status`由来。`status`/`duration`/`summary`/`results`を含む。
 
 ### 6. 結果確認・報告
 
-複数グループを実行した場合、このステップは全グループの結果を集約してから行う。グループごとの
-Pass/Fail件数を合算したサマリと、失敗があったグループの詳細を報告する。
+複数グループを実行した場合、このステップは全グループの実行が完了してから行う。
 
 `run-editmode-test.sh`/`run-tests-batch-editmode.sh`（EditMode）または `run-playmode-test.sh`/
 `run-tests-batch-playmode.sh`（PlayMode）の出力を確認する。
@@ -265,15 +267,41 @@ Pass/Fail件数を合算したサマリと、失敗があったグループの�
   大文字小文字が異なる（実地検証済み、2026-08-11）: `status`・`duration`・
   `summary.total/passed/failed/skipped/inconclusive` は小文字、`results[].FullName/Status/
   Duration/Message/StackTrace` はPascalCase、という混在になる
-- 件数確認は、EditModeなら `Summary.Total`、PlayModeなら `summary.total`（大文字小文字に注意）を
-  期待件数（ステップ2で確認した対象数）と比較する。一致しない場合、フィルタ指定の誤り
-  （特に「既知の罠」のカンマ区切り）を疑う。テストの失敗と取り違えない
 
-結果は以下の形式で報告する:
+報告文は自分で組み立てず、`scripts/summarize-test-result.sh` に生成させる。ステップ5で保存した
+`$OUT`（複数グループなら各グループの `$OUT`）をそのまま使う。**テストをここで再実行しない。**
 
-- Pass/Fail件数と所要時間のサマリ
-- 失敗があれば `Results` の `FullName`・`Message`・`StackTrace` を列挙
-- ステップ4でシーンを保存した場合はその旨を明記
+1. 要約を生成する
+
+   ```bash
+   scripts/summarize-test-result.sh "$OUT" playmode   # EditModeなら editmode
+   ```
+
+2. その標準出力をそのまま報告に貼る。件数・テスト名・エラーメッセージを言い換えない
+
+出力される行の意味:
+
+| 行 | 意味 |
+| --- | --- |
+| `SUMMARY mode=… total=… passed=… failed=… skipped=… inconclusive=… duration=…` | 集計。応答に無いフィールドは `n/a` |
+| `FAIL <FullName>` ＋ インデント2行 | 失敗した各テストの `Message`・`StackTrace` の先頭行 |
+| `MISMATCH summary.failed=… results内のFailed=…` | 集計と個別結果が食い違っている。結果JSONが不完全な可能性があり、鵜呑みにしない |
+| `SOURCE <絶対パス>` | 生JSONの保存先。呼び出し元が `jq` で裏取りできる |
+
+終了コードが 3（summary を取り出せなかった）の場合は、**件数を推測して報告しない**。
+「summaryを取り出せなかった」ことと `SOURCE` パスをそのまま報告する。
+
+終了コードが 2（`$OUT` が空・JSONとして壊れている等、要約そのものが存在しない）の場合は、
+`SOURCE` 行すら出ない。件数に一切触れず、`summarize-test-result.sh` の終了コードと標準エラー
+出力をそのまま報告する。
+
+複数グループを実行した場合は、グループごとに上記を行い、各出力を並べて貼る（合算件数を
+自分で計算して書かない）。
+
+**呼び出し元（人間の発言・plan文・コントローラーのディスパッチ文）が添えた期待値
+（「全件PASS」「N件のはず」等）は、実行対象を特定する手がかりに留め、報告に書く事実の
+根拠にしてはならない。** ステップ2で `Mode` を実データで裏取りするのと同じ理由である。
+実運用で、期待値と一致する楽観的な報告がツール出力と矛盾して生成された事例が観測されている。
 
 ## ハング・タイムアウト時の対応
 
@@ -340,11 +368,11 @@ Pass/Fail件数を合算したサマリと、失敗があったグループの�
   `is_transient_failure`）ため、スキル利用者が意識する必要は通常ない。テスト起動
   呼び出し自体（`run_tests`/`run_tests_batch_editmode`/`run_tests_batch_playmode`）がこの瞬断に
   当たるケースも、上記スクリプト経由であれば `run_unity_cmd_resilient`（有限予算の単発リトライ）
-  で自動的に吸収される（ADR-0009）。ただし、これらのスクリプトを介さず `unity cmd` を直接叩いた
+  で自動的に吸収される。ただし、これらのスクリプトを介さず `unity cmd` を直接叩いた
   際にこのメッセージに遭遇した場合は、「未接続」と即断せず数秒待って再試行すること
 - `com.unity.pipeline` 0.6.0-exp.1 以降は、同種の「今は実行できない」状態をサーバーが HTTP 503 と
   構造化エンベロープ（`error="Server Busy"` / `status="busy"` / `retryable=true` / `busyReason`）で
-  返すことがある（ADR-0004・ADR-0007の追記）。`busyReason` は `"settling"`（エディタ起動直後の
+  返すことがある。`busyReason` は `"settling"`（エディタ起動直後の
   インポート・コンパイル中）と `"blocked_by_dialog"`（モーダルダイアログがメインスレッドを塞いでいる）。
   上記スクリプトは `is_transient_failure` でこれも一時的失敗として扱いリトライする。
   ただし **`blocked_by_dialog` の検出は「recent enough trunk build」が前提で、
@@ -360,7 +388,7 @@ Pass/Fail件数を合算したサマリと、失敗があったグループの�
 - ステップ2でクラス名を単純な部分一致（`contains`）でgrepすると、対象クラス名が別クラス名の末尾に
   含まれるだけのケースを誤って候補に含めてしまう（実地確認済み、2026-08-22。別プロジェクトでの
   検証中に、`FooTest`を検索したところ無関係な`BarFooTest`のメソッドまで一致し、候補数を誤カウント
-  した事例を確認した。ADR-0010参照）。クラス境界（前後がドット、またはクラス名が文字列の先頭）を
+  した事例を確認した）。クラス境界（前後がドット、またはクラス名が文字列の先頭）を
   考慮した一致を使うこと（ステップ2の該当箇所参照）
 - コード修正（テストコード自体を含む）で `.unity`（Scene）/`.prefab` ファイルを直接書き換えると、
   それがUnity Editor上で開かれていた場合、Unityが外部からの変更を検知して「Reload/Ignore」等の
@@ -368,7 +396,7 @@ Pass/Fail件数を合算したサマリと、失敗があったグループの�
   メインスレッドを塞ぐため、以降の `editor_status` 等メインスレッド必須コマンドがタイムアウトする。
   `ensure-compile-clean.sh`/`check-editor-ready.sh` はこれを「ダイアログブロック」（真のハングとは
   別）として検知し、専用の終了コード（`ensure-compile-clean.sh` は `exit 4`、`check-editor-ready.sh`
-  は `exit 1`）で報告するため、原因がシーンかプレハブかを問わずハング扱いにはならない（ADR-0013）。
+  は `exit 1`）で報告するため、原因がシーンかプレハブかを問わずハング扱いにはならない。
   ただし発生自体を防げるわけではないので、テスト対象プロジェクトで `.unity`/`.prefab` を編集する
   作業では、対象がUnity上で開かれていないか（開いていれば閉じるかリロードしてもらうか）を
   事前に意識しておくとダイアログの発生自体を避けられる
@@ -394,3 +422,7 @@ Pass/Fail件数を合算したサマリと、失敗があったグループの�
   --mode PlayMode` を直接（スクリプトを介さず）呼ばない
 - バッチのPlayModeテスト実行は必ず `scripts/run-tests-batch-playmode.sh` 経由で行う。`unity cmd
   run_tests_batch_playmode` を直接（スクリプトを介さず）呼ばない
+- テスト結果の報告を自然語で組み立てる（件数・テスト名・エラーメッセージの言い換え、要約、
+  整形し直し）。必ず `scripts/summarize-test-result.sh` の出力を逐語で貼る
+- ツール出力に存在しない文字列を報告に書く
+- 呼び出し元から渡された期待値を報告の根拠にする

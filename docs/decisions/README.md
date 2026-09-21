@@ -19,3 +19,4 @@
 | [0011](0011-ensure-compile-clean-inline-recovery.md) | ensure-compile-clean.shのポーリング予算超過に対するスクリプト内自動リカバリ | Accepted (2026-08-22) |
 | [0012](0012-vendor-pipeline-internal-types.md) | `com.unity.pipeline` 0.6での`internal`化に伴う型のベンダリング | Accepted (2026-09-06) |
 | [0013](0013-dialog-block-detection-in-compile-check-polling.md) | ensure-compile-clean.shへのダイアログブロック判別の移植（`.unity`/`.prefab`外部変更ダイアログによる誤ハング判定の解消） | Accepted (2026-09-06) |
+| [0014](0014-mechanical-report-derivation.md) | テスト結果報告の機械導出化（サブエージェントの二重報告・楽観的幻覚への対策） | Accepted (2026-09-21) |
