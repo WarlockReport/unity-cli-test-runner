@@ -2,8 +2,11 @@
 #
 # unity-cli-test-runner スキルの「1. コンパイル状態の確定」ステップを1コマンドにまとめる。
 # clear_console → recompile → recompile_status ポーリング → editor_status によるドメインリロード
-# 完了の安定確認 → get_console_logs(error) を順に実行し、コンパイルが確定していて（Unity側が
-# 変更を反映しきっていて）、かつエラーが無いかを確認する。
+# 完了の安定確認 → recompile_status の読み直し（判定）＋ console（詳細取得）を順に実行し、
+# コンパイルが確定していて（Unity側が変更を反映しきっていて）、かつエラーが無いかを確認する。
+# com.unity.pipeline 0.7.0-exp.1 以降が前提（0.7 で get_console_logs が削除されたため、
+# コンパイルエラーの判定は recompile_status の failed/compilationFailed を一次情報とし、
+# console は詳細取得専用にしている）。
 #
 # 使い方: ensure-compile-clean.sh [ポーリング予算秒数(既定60)]
 #
@@ -24,9 +27,11 @@
 #      使い切ってもなお）失敗/タイムアウトした（下記の自動リカバリを試みても解消しなかった
 #      場合を含む）。
 #      盲目的に再試行せず、スキルの「ハング・タイムアウト時の対応」に従う
-#   3  get_console_logsの返り値の形式が想定と異なり、エラー有無を確実に判定できなかった。
-#      標準出力の生JSONを確認して手動判断する
-#   4  内部のunity cmd呼び出し（clear_console/recompile/editor_status/get_console_logsのいずれか）
+#   3  recompile_status から failed / compilationFailed を取り出せず、エラー有無を確実に
+#      判定できなかった。標準出力の生JSONを確認して手動判断する
+#      （console の応答が想定外でも判定自体は recompile_status で済んでいるため、
+#      その場合は exit 3 ではなく exit 1 になる）
+#   4  内部のunity cmd呼び出し（clear_console/recompile/editor_statusのいずれか）
 #      が失敗/タイムアウトしたが、メインスレッド不要のrecompile_statusは正常応答した
 #      （モーダルダイアログによるメインスレッドブロックの可能性が高い。真のハングではない）。
 #      .unity/.prefabファイルをUnity上で開いた状態のまま外部から変更すると、外部変更確認
@@ -41,9 +46,13 @@
 #   JSON文字列として二重エンコードされている（test_statusと同じ形）。中身は
 #   {status, failed, errors} で、statusは triggered/compiling/completed/up_to_date を取る。
 #   `jq '.data.result | fromjson | .status'` で取り出す
-# - editor_status --json / get_console_logs --json の data.result はネイティブなJSONオブジェクト
+# - editor_status --json / console --json の data.result はネイティブなJSONオブジェクト
 #   （二重エンコードされていない）。editor_statusは {status, compiling, domainReloadInProgress,
-#   playMode, ...}、get_console_logsは {total, returned, logs: [...]}
+#   playMode, ...}、consoleは {entries, cursor, session, returned, dropped, reset,
+#   counts{...}, groundTruth{...}}
+# - recompile / recompile_status の data.result に含まれる compilationFailed は、Unityの
+#   ネイティブなコンパイル失敗フラグのサンプルが2秒以内のときだけ有効（古ければfalseに倒れる）。
+#   サンプリングはメインスレッドで動くため、ダイアログブロック中・ドメインリロード中は止まる
 # - コンパイル完了直後、ドメインリロード（アセンブリの再読み込み）の間の1〜2秒、Unity側の
 #   Pipelineサーバーが一時的にダウンし、recompile_statusが completed/up_to_date を報告した
 #   直後にすら unity cmd 呼び出しが失敗しうる。そのため recompile_status が完了状態を報告した
@@ -238,6 +247,47 @@ report_dialog_block_and_exit() {
   exit 4
 }
 
+# recompile / recompile_status の `.data.result` から1フィールドを読む。
+# recompile_status の result は 0.7 でもJSON文字列として二重エンコードされている一方、
+# recompile 側の符号化は版差がありうるため、二重エンコード→ネイティブの順に試す。
+# jq の `//` はfalseも「無い」と扱ってしまい failed=false を空文字列に潰すので、
+# 存在確認には has() を使う（jq 1.7.1 で実測）。
+# 取り出せない場合は空文字列を返し、呼び出し元が「判定不能」として扱えるようにする。
+read_result_field() {
+  local raw="$1" field="$2"
+  echo "$raw" | jq -r --arg f "$field" '
+    .data.result
+    | if type == "string" then (fromjson? // {}) else . end
+    | if type == "object" and has($f) then .[$f] else empty end
+  ' 2>/dev/null || true
+}
+
+# コンパイルエラーが確定した時点で、console から詳細を取得して exit 1 する（戻らない）。
+#   $1 … 判定の根拠にした生JSON（console が取れなかった場合はこちらを報告に回す）
+#   $2 … 判定の根拠を1行で表したラベル
+# 判定の一次情報は recompile_status なので、console の取得に失敗しても、entries が空でも、
+# 判定は覆さない。sticky なコンパイルエラーは clear_console で消えず、
+# backfill のタイミング次第で詳細が欠けることがあるため、ここで成功に倒すと誤報告になる。
+report_compile_failure_and_exit() {
+  local evidence_raw="$1" evidence_label="$2"
+  echo "コンパイルエラーを検出しました（${evidence_label}）。console から詳細を取得します。" >&2
+
+  local console_raw entry_count
+  if console_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" console --level error --tail 20 --json)"; then
+    entry_count="$(echo "$console_raw" | jq -r 'if (.data.result.entries | type) == "array" then (.data.result.entries | length) else "unknown" end' 2>/dev/null || true)"
+    if [ "$entry_count" = "0" ]; then
+      echo "  console のエラーエントリは0件でした（sticky/backfillの都合で詳細が欠けることがあります）。判定は recompile_status に基づくため、成功にはしません。" >&2
+    fi
+    echo "コンパイルエラーを検出しました（${evidence_label}）。テスト対象の解決へ進まず、以下を報告してください:"
+    echo "$console_raw"
+  else
+    echo "  console からの詳細取得に失敗しました。判定は recompile_status に基づくため覆りません。" >&2
+    echo "コンパイルエラーを検出しました（${evidence_label}）。console からの詳細取得には失敗したため、判定の根拠となった応答をそのまま報告してください:"
+    echo "$evidence_raw"
+  fi
+  exit 1
+}
+
 echo "[1/5] clear_console" >&2
 if ! run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" clear_console >/dev/null; then
   if is_blocked_by_dialog "$CLI_TIMEOUT"; then
@@ -309,27 +359,30 @@ case "$step4_rc" in
     ;;
 esac
 
-echo "[5/5] get_console_logs --severity error" >&2
-if ! logs_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" get_console_logs --severity error --limit 20 --json)"; then
-  if is_blocked_by_dialog "$CLI_TIMEOUT"; then
-    report_dialog_block_and_exit
-  fi
-  echo "get_console_logs が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
+echo "[5/5] recompile_status を読み直してコンパイルエラーの有無を判定" >&2
+# 判定の一次情報は recompile_status（0.7 で compilationFailed が追加された）。console は
+# 詳細取得専用にする。compilationFailed はネイティブフラグのサンプルが2秒以内で
+# なければ false に倒れる仕様のため、ドメインリロード完了を確認した直後のこのタイミングで
+# 読み直すのが最も信頼できる。
+# ここでの失敗に is_blocked_by_dialog を挟まないのは、その判別の probe が recompile_status
+# 自身だから（メインスレッド不要なのでダイアログでは塞がれず、失敗＝真のハングに寄る）。
+if ! status_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" recompile_status --json)"; then
+  echo "recompile_status が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
   exit 2
 fi
 
-error_count="$(echo "$logs_raw" | jq -r 'if .data.result.logs == null then "unknown" else (.data.result.logs | length) end' 2>/dev/null || true)"
+failed="$(read_result_field "$status_raw" failed)"
+compilation_failed="$(read_result_field "$status_raw" compilationFailed)"
 
-if ! [[ "$error_count" =~ ^[0-9]+$ ]]; then
-  echo "get_console_logsの返り値の形式が想定と異なり、エラー有無を判定できませんでした。以下の生JSONを確認してください:" >&2
-  echo "$logs_raw"
+# どちらか一方でも真偽値として読めれば判定できる。両方読めない場合だけ判定不能とする。
+if ! [[ "$failed" =~ ^(true|false)$ ]] && ! [[ "$compilation_failed" =~ ^(true|false)$ ]]; then
+  echo "recompile_status から failed / compilationFailed を取り出せず、コンパイルエラーの有無を判定できませんでした。以下の生JSONを確認してください:" >&2
+  echo "$status_raw"
   exit 3
 fi
 
-if [ "$error_count" -gt 0 ]; then
-  echo "コンパイルエラーを${error_count}件検出しました。テスト対象の解決へ進まず、以下を報告してください:"
-  echo "$logs_raw"
-  exit 1
+if [ "$failed" = "true" ] || [ "$compilation_failed" = "true" ]; then
+  report_compile_failure_and_exit "$status_raw" "recompile_status: failed=${failed:-n/a} compilationFailed=${compilation_failed:-n/a}"
 fi
 
 echo "コンパイル確定・エラー無し。テスト対象の解決へ進んでよい。" >&2
