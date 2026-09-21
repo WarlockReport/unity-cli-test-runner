@@ -49,6 +49,49 @@ UPMレジストリの `com.unity.pipeline` の `dist-tags.latest` が `0.7.0-exp
 - `unity` CLI を模擬するモック（`tests/fake-unity/unity`）を常設化し、終了コード 0/1/2/3/4 の全経路を Unity 実機なしで回帰テストできるようにした。ADR-0013 では使い捨てのモックで検証していたものを、テストファイル（`tests/ensure-compile-clean.test.sh`）として残した形である。ただし `tests/` は `.gitignore` 対象のためリポジトリには含まれない
 - `console` の `--tail` / `--level` というCLIフラグ名は、パッケージのソース上の引数名（`tail` / `level`）から導いたもの。実機検証で実際のフラグ名を確認している（下記「実地検証」節）
 
+## 実地検証 (2026-09-21)
+
+Unity 6000.3.14f1 + `com.unity.pipeline` 0.7.0-exp.1 が導入済みのプロジェクトを対象に、
+`ensure-compile-clean.sh` の受け入れ確認を実機で行った。
+
+- **`console` の実際のフラグ名**: `--level error --tail 5 --json` で成功。`ensure-compile-clean.sh`
+  に既に書かれている `--level` / `--tail` はそのまま正しく、修正は不要だった。
+  `.data.result` のキーは `entries` / `cursor` / `session` / `returned` / `dropped` / `reset` /
+  `counts`（`error`/`warn`/`log`）/ `groundTruth`（`sampledUtc`/`ageMs`/`compilationFailed`/
+  `compiling`/`consoleErrors`/`consoleWarnings`/`consoleLogs`/`seeded`）だった
+- **`recompile_status` の実応答**（正常時、`jq -c '.data.result | fromjson'`）:
+  `{"status":"idle","failed":false,"errors":[],"compilationFailed":false}`。
+  `.data.result` が JSON 文字列として二重エンコードされている点は 0.7 でも維持されていることを確認した
+- **Step 4〜8 の終了コード実測**:
+  - Step 4（正常系）: `exit=0`。標準エラー最終行 `コンパイル確定・エラー無し。テスト対象の解決へ進んでよい。` を確認
+  - Step 5（構文エラーを含むファイルを新規追加）: `exit=1`。標準出力の `console` JSON の
+    `entries[]` に `error CS1525: Invalid expression term ';'` を含む1件が返り、標準エラーに
+    `コンパイルエラーを検出しました（recompile_status: failed=true compilationFailed=true）` が出た
+  - Step 6（エラーを直さず再実行）: `exit=1` のまま。標準エラーに
+    `recompile が status:"failed" を返しました（コンパイルエラーが残っています）。ポーリングを飛ばして詳細取得へ進みます。`
+    が出ており、**早期分岐の経路**を通ったことを確認した（通常ポーリング経路は通っていない）
+  - Step 7（エラーファイルを削除して「修正」相当にする）: `exit=0` に復帰。0.7 の正規化
+   （`up_to_date`/`idle` → `completed` + `failed=true`）が、直った状態を誤ってエラー扱いする方向には
+   効いていないことを確認した
+  - Step 8（現在開いているシーンファイルへ外部プロセスから末尾に空行を1行追記）: 想定していた
+    `exit=4`（ダイアログブロック）は**観測できなかった**。追記直後・Unity Editor をアクティブ化した
+    直後のいずれでも `editor_status` は `ready` のままで、シーンの dirty フラグにも変化がなく、
+    `ensure-compile-clean.sh 30` は通常どおり `exit=0` で完了した。少なくとも今回の実機構成
+    （外部プロセスによるファイル末尾への空行追記、Unity 側のフォーカス遷移を伴う確認）では、
+    現在開いているシーンファイルの外部変更が「Reload/Ignore」ダイアログを自動的には引き起こさな
+    かった。ダイアログ自体が発生しなかったため、閉じる操作も不要だった。検証後、追記した空行は
+    元のファイルへ復元し、差分が無いことを確認済み。ダイアログブロック（`exit=4`）経路そのものは
+    今回の実機検証では再現できていない
+- **Step 9（テスト実行4経路）**: EditMode 単一クラス（テストメソッド16件）、EditMode バッチ
+  （異なる2クラスから1件ずつ計2件）、PlayMode 単一クラス（テストメソッド6件）、PlayMode バッチ
+  （異なる2クラスから1件ずつ計2件）の4経路すべてで `summarize-test-result.sh` の `SUMMARY` 行が出て
+  終了コード0だった（全件PASS）。レスポンス形状も 0.6 から変化していないことを確認した:
+  EditMode（`run_tests` 直接応答）は `Summary.{Total,Passed,Failed,Skipped,Inconclusive}` の
+  PascalCase、PlayMode（`test_status` 経由）は `summary.{total,passed,failed,skipped,inconclusive}`
+  の小文字 + `results[].{FullName,Status,Message,StackTrace,Duration}` の PascalCase という
+  混在がそのまま残っていた。`Editor/Commands/TestCommands.cs` に0.6→0.7で差分が無いという記録
+  （Context節）の裏取りになった
+
 ## 未解決
 
 - `busyReason="blocked_by_dialog"` が Unity 6000.3.x で有効になる版。0.7 のソースは 0.6 と同一なので、Unity 本体側の対応待ちと見られる
