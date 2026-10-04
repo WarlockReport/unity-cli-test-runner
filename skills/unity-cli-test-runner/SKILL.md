@@ -16,13 +16,15 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 
 ## 前提
 
-- 対象Unityプロジェクトの `com.unity.pipeline` は **0.7.0-exp.1 以降**であること。0.6 以前は
-  非対応（0.7 で `get_console_logs` が削除され、コンパイルエラーの判定方法が変わったため）
+- 対象Unityプロジェクトの `com.unity.pipeline` は **0.8.0-exp.1 以降**であること。0.7 以前は
+  非対応・未検証（0.8 で本パッケージのカスタムコマンドが参照する属性のアセンブリが変わったため）
 - 各コマンドには必ず明示的な `--timeout <秒>` を付ける
-- エディタの起動確認はワークフローのステップ0（`scripts/check-editor-ready.sh`）で行う
-- 本ドキュメント中の `scripts/...` はすべて、このスキル自身のディレクトリからの相対パスである。
-  実行時はスキルのベースディレクトリを起点に絶対パスへ解決してから呼び出すこと（対象Unity
-  プロジェクトのカレントディレクトリとは無関係）
+- エディタの起動確認はワークフローのステップ0（`${CLAUDE_SKILL_DIR}/scripts/check-editor-ready.sh`）で行う
+- 本ドキュメント中の `${CLAUDE_SKILL_DIR}` はこのスキルのディレクトリの絶対パスに展開されるので、
+  コマンドはそのまま（対象Unityプロジェクトのカレントディレクトリのままで）実行してよい。もし
+  `${CLAUDE_SKILL_DIR}` が展開されずに文字列のまま残っている場合は、このスキルのベースディレクトリの
+  絶対パスで置き換えてから実行する。本文中で `scripts/xxx.sh` とだけ書いている箇所はスクリプトの名前を
+  指しており、実行時のパスは `${CLAUDE_SKILL_DIR}/scripts/xxx.sh` である
 
 ## ワークフロー
 
@@ -44,7 +46,7 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 対象リストの解決・実行に進む前に、必ず `scripts/check-editor-ready.sh` を実行する。
 
 ```bash
-scripts/check-editor-ready.sh
+${CLAUDE_SKILL_DIR}/scripts/check-editor-ready.sh
 ```
 
 内部では `unity cmd editor_status`（このスキルの他スクリプトが依拠するのと同じ自動検出機構）を使う。
@@ -65,7 +67,7 @@ scripts/check-editor-ready.sh
 メインスレッドだけが塞がれている」= ダイアログブロック**と判定して exit 1 を返す。
 
 `com.unity.pipeline` 0.6 以降には、この状況を 503 busy（`busyReason="blocked_by_dialog"`）で返す
-機能が入っているが（0.7.0-exp.1 の `BasePipelineServer.cs` は該当箇所が 0.6 と同一で、
+機能が入っているが（0.7.0-exp.1・0.8.0-exp.1 の `BasePipelineServer.cs` でも該当箇所に実質的な変更は無く、
 挙動も変わらない見込み）、CHANGELOGが明記する通り「recent enough trunk build」が前提であり、
 **Unity 6000.3.14f1 では有効になっていない**（実測: busy応答ではなく単に
 `Pipeline command 'editor_status' timed out after 30000ms` でタイムアウトし、
@@ -78,7 +80,7 @@ scripts/check-editor-ready.sh
 テスト対象の解決に進む前に、必ず `scripts/ensure-compile-clean.sh` を実行してコンパイルを確定させる。
 
 ```bash
-scripts/ensure-compile-clean.sh
+${CLAUDE_SKILL_DIR}/scripts/ensure-compile-clean.sh
 ```
 
 このスクリプトは `clear_console → recompile → recompile_status ポーリング → editor_status によるドメイン
@@ -93,7 +95,7 @@ recompile_statusポーリングとeditor_statusによる安定確認の両方に
 指定値の4倍強（既定なら最大240秒＋自動リカバリの直接確認分、最大30秒程度）になりうる）。
 複数ファイルにまたがる大きめの修正の直後（レビュー指摘の一括反映など）は
 ドメインリロードが長引く傾向があるため、既定を待たずに第1引数で予算を伸ばしてよい（例:
-`scripts/ensure-compile-clean.sh 120`）。
+`${CLAUDE_SKILL_DIR}/scripts/ensure-compile-clean.sh 120`）。
 
 | 終了コード | 意味 | 対応 |
 | --- | --- | --- |
@@ -216,7 +218,7 @@ exit 2を受け取った時点で追加の直接確認を行う必要はない�
 
 ```
 OUT="$(mktemp -t unity-test)"
-scripts/run-editmode-test.sh <値> <testName|assembly> [timeout] > "$OUT"
+${CLAUDE_SKILL_DIR}/scripts/run-editmode-test.sh <値> <testName|assembly> [timeout] > "$OUT"
 ```
 
 このスクリプトが `run_tests` の起動呼び出しをテスト起動直後のドメインリロードによる一時的な
@@ -229,7 +231,7 @@ Pipeline切断（「既知の罠」参照）に対して有限予算でリトラ
 
 ```
 OUT="$(mktemp -t unity-test)"
-scripts/run-playmode-test.sh <値> <testName|assembly> [timeout] [ポーリング予算秒数] > "$OUT"
+${CLAUDE_SKILL_DIR}/scripts/run-playmode-test.sh <値> <testName|assembly> [timeout] [ポーリング予算秒数] > "$OUT"
 ```
 
 このスクリプトが `run_tests --async_tests` の実行から `test_status` の完了確認・結果の簡易整合性
@@ -251,9 +253,9 @@ JSON（`test_status`由来。`status`/`duration`/`summary`/`results`を含む。
 
 **バッチコマンド（複数クラス横断）を使う場合**（同様に `> "$OUT"` で保存する）:
 
-- EditMode: `scripts/run-tests-batch-editmode.sh <カンマ区切りFullName> [timeout] > "$OUT"`（直接
+- EditMode: `${CLAUDE_SKILL_DIR}/scripts/run-tests-batch-editmode.sh <カンマ区切りFullName> [timeout] > "$OUT"`（直接
   `unity cmd run_tests_batch_editmode` を呼ばない。「禁止事項」参照）
-- PlayMode: `scripts/run-tests-batch-playmode.sh <カンマ区切りFullName> [timeout] [ポーリング予算秒数] > "$OUT"`（直接 `unity cmd run_tests_batch_playmode` を呼ばない。「禁止事項」参照）
+- PlayMode: `${CLAUDE_SKILL_DIR}/scripts/run-tests-batch-playmode.sh <カンマ区切りFullName> [timeout] [ポーリング予算秒数] > "$OUT"`（直接 `unity cmd run_tests_batch_playmode` を呼ばない。「禁止事項」参照）
 
 **複数グループがある場合の失敗時の扱い**: テストのPass/Failは通常の結果として扱い、他のグループの
 実行を止めない。`unity cmd` 呼び出し自体のハング・タイムアウトは「ハング・タイムアウト時の対応」に
@@ -281,7 +283,7 @@ JSON（`test_status`由来。`status`/`duration`/`summary`/`results`を含む。
 1. 要約を生成する
 
    ```bash
-   scripts/summarize-test-result.sh "$OUT" playmode   # EditModeなら editmode
+   ${CLAUDE_SKILL_DIR}/scripts/summarize-test-result.sh "$OUT" playmode   # EditModeなら editmode
    ```
 
 2. その標準出力をそのまま報告に貼る。件数・テスト名・エラーメッセージを言い換えない
@@ -389,9 +391,12 @@ JSON（`test_status`由来。`status`/`duration`/`summary`/`results`を含む。
   この非対称性がダイアログブロックの実用的な判別方法であり、`check-editor-ready.sh` に実装済み
   （ステップ0の「ダイアログブロックの判別」参照）。
   なお `busyReason="settling"`（起動直後）の方は版に関わらず有効なので、busy検出自体は無駄ではない
-- `recompile_status --json` の `data.result` は `test_status`/`batch_test_status` と同様、JSON文字列
-  として二重エンコードされている（`jq '.data.result | fromjson | .status'` で取り出す）。トップレベルに
-  `.status` が直接あるわけではない点に注意（実地検証済み、2026-08-21）
+- `recompile_status` / `test_status` の `data.result` は、`com.unity.pipeline` 0.8 以降ネイティブなJSON
+  オブジェクトで返る（0.7 以前はJSON文字列として二重エンコードされ、`jq '.data.result | fromjson'` が
+  必要だった）。本パッケージの `batch_test_status` も現行版では同じくネイティブなJSONを返す。スクリプトは
+  どちらの形も受け付けるので（プラグインとUPMパッケージは別々に更新されうるため）、`unity cmd` を手で叩いて
+  確かめるときも両方の形がありうると考えること。どちらの場合もトップレベルに `.status` が直接あるわけでは
+  なく、`.data.result.status` にある
 - ステップ2でクラス名を単純な部分一致（`contains`）でgrepすると、対象クラス名が別クラス名の末尾に
   含まれるだけのケースを誤って候補に含めてしまう（実地確認済み、2026-08-22。別プロジェクトでの
   検証中に、`FooTest`を検索したところ無関係な`BarFooTest`のメソッドまで一致し、候補数を誤カウント
@@ -407,7 +412,7 @@ JSON（`test_status`由来。`status`/`duration`/`summary`/`results`を含む。
   ただし発生自体を防げるわけではないので、テスト対象プロジェクトで `.unity`/`.prefab` を編集する
   作業では、対象がUnity上で開かれていないか（開いていれば閉じるかリロードしてもらうか）を
   事前に意識しておくとダイアログの発生自体を避けられる
-- **`get_console_logs` は `com.unity.pipeline` 0.7.0-exp.1 に存在しない**（ソースから削除済み。
+- **`get_console_logs` は `com.unity.pipeline` 0.7.0-exp.1 以降に存在しない**（ソースから削除済み。
   CHANGELOG にのみ残る）。0.6 向けに書かれた手順をそのまま流用すると `Command Not Found` で
   失敗する。代わりに `console`（引数: `--tail`（既定100）/ `--level log|warn|error`（**下限**
   severity）/ `--since` / `--since_session`）を使う。`console` の `entries[]` は `logType` で

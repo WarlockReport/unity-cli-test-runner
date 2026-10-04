@@ -21,10 +21,11 @@ tools: Bash, Skill
 4. 結果を報告する。**報告文は自分で組み立てず、スクリプトに生成させる**:
    1. 手順3で実行したテストの標準出力を必ずファイルへ保存する（**手順3の実行そのものを指す。
       テストをここで二度実行しない**。例:
-      `OUT="$(mktemp -t unity-test)"; scripts/run-playmode-test.sh <値> <種別> 600 600 > "$OUT"`。
-      `scripts/...` はスキル自身のディレクトリからの相対パス表記であり、SKILL.mdの規約どおり
-      スキルのベースディレクトリを起点に絶対パスへ解決してから呼び出す）
-   2. スキルのベースディレクトリ配下の `scripts/summarize-test-result.sh "$OUT" <editmode|playmode>`
+      `OUT="$(mktemp -t unity-test)"; <スクリプトの絶対パス>/run-playmode-test.sh <値> <種別> 600 600 > "$OUT"`。
+      スクリプトの絶対パスは、手順1でスキルを読み込んだときに本文の `${CLAUDE_SKILL_DIR}/scripts/` が
+      展開されたものをそのまま使う。展開されずに残っていた場合は、スキルのベースディレクトリの絶対パスで
+      置き換える。カレントディレクトリ基準の `scripts/...` では見つからない）
+   2. 同じ絶対パスの `summarize-test-result.sh "$OUT" <editmode|playmode>`
       を実行する
    3. **その標準出力をそのまま報告に貼る**（`SUMMARY` / `FAIL` / `MISMATCH` / `SOURCE` の各行）。
       件数・テスト名・エラーメッセージを言い換えたり要約したりしない
