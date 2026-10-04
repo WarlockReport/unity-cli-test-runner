@@ -48,9 +48,13 @@ run_unity_cmd() {
   unity cmd "$@" --timeout "$CLI_TIMEOUT"
 }
 
+# batch_test_status --json の生レスポンスから中身のstatus文字列を取り出す。
+# 中身の取り出し（二重エンコード文字列／ネイティブJSONの両対応）は extract_result_payload（_lib.sh）が行う。
+# 旧版の本UPMパッケージは二重エンコード文字列を、現行版はネイティブなJSONを返す。
 extract_status() {
-  local raw="$1"
-  echo "$raw" | jq -r '(.data.result | fromjson | .status) // empty' 2>/dev/null || true
+  local raw="$1" payload
+  payload="$(extract_result_payload "$raw")" || return 0
+  echo "$payload" | jq -r '.status // empty' 2>/dev/null || true
 }
 
 echo "[1/4] batch_test_status でベースラインを取得（同一full_names連続実行時のstale検知用）" >&2
@@ -126,7 +130,7 @@ echo "[4/4] 結果の整合性チェック（ベースライン比較・各full_
 
 if [ -n "$BASELINE" ] && [ "$raw" = "$BASELINE" ]; then
   echo "batch_test_statusの結果がrun_tests_batch_playmode発行前のベースラインと完全一致しました。新しい実行結果を確認できませんでした（stale結果の疑い）。" >&2
-  echo "$raw" | jq '.data.result | fromjson' 2>/dev/null || echo "$raw"
+  extract_result_payload "$raw" || echo "$raw"
   exit 3
 fi
 
@@ -135,10 +139,10 @@ for name in "${NAMES[@]}"; do
   trimmed="$(echo "$name" | sed 's/^ *//; s/ *$//')"
   if ! echo "$raw" | grep -qF "$trimmed"; then
     echo "batch_test_statusの結果に完全名「${trimmed}」の手がかりが見当たりません（取り違えの疑い）。" >&2
-    echo "$raw" | jq '.data.result | fromjson' 2>/dev/null || echo "$raw"
+    extract_result_payload "$raw" || echo "$raw"
     exit 3
   fi
 done
 
-echo "$raw" | jq '.data.result | fromjson'
+extract_result_payload "$raw" || echo "$raw"
 exit 0

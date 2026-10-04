@@ -29,8 +29,8 @@
 #
 # 注意: test_status --json のレスポンス構造は実地検証済み（2026-08-11）。トップレベルは
 #   { success, command, data: { command, parameters, result, target }, errors, warnings }
-# の形だが、data.result は他コマンド（run_tests/list_tests）と異なり**JSON文字列として二重
-# エンコード**されている点に注意（`jq '.data.result | fromjson'` で中身のオブジェクトを取り出す）。
+# の形。data.result は com.unity.pipeline 0.8 以降ネイティブなJSONオブジェクトで、0.7 以前は
+# JSON文字列として二重エンコードされていた（どちらの形も extract_result_payload が受け付ける）。
 # 中身のオブジェクトは { status, duration, summary: {total,passed,failed,skipped,inconclusive},
 # results: [{FullName,Status,Duration,Message,StackTrace}] } で、summaryとそのキーは小文字、
 # results内の各キーはPascalCase（大文字始まり）という混在がある。
@@ -69,11 +69,12 @@ run_unity_cmd() {
 }
 
 # test_status --json の生レスポンスから中身のstatus文字列を取り出す。
-# data.result はJSON文字列として二重エンコードされているため fromjson で1段階デコードする。
-# 構造が想定と異なりjqが失敗/空を返した場合は呼び出し元でgrepフォールバックする。
+# 中身の取り出し（二重エンコード文字列／ネイティブJSONの両対応）は extract_result_payload（_lib.sh）が行う。
+# 構造が想定と異なり取り出せなかった場合は空文字列を返し、呼び出し元でgrepフォールバックする。
 extract_status() {
-  local raw="$1"
-  echo "$raw" | jq -r '(.data.result | fromjson | .status) // empty' 2>/dev/null || true
+  local raw="$1" payload
+  payload="$(extract_result_payload "$raw")" || return 0
+  echo "$payload" | jq -r '.status // empty' 2>/dev/null || true
 }
 
 echo "[1/4] test_status でベースラインを取得（同一filter連続実行時のstale検知用）" >&2
@@ -166,16 +167,16 @@ echo "[4/4] 結果の整合性チェック（ベースライン比較・filter�
 if [ -n "$BASELINE" ] && [ "$raw" = "$BASELINE" ]; then
   echo "test_statusの結果がrun_tests発行前のベースラインと完全一致しました。新しい実行結果を確認できませんでした（同一filter連続実行時のstale結果の疑い）。" >&2
   echo "Unityコンソールログで InvalidOperationException(TestResultCollector.RunFinished) の有無を確認してください。" >&2
-  echo "$raw" | jq '.data.result | fromjson' 2>/dev/null || echo "$raw"
+  extract_result_payload "$raw" || echo "$raw"
   exit 3
 fi
 
 if ! echo "$raw" | grep -qF "$FILTER"; then
   echo "test_statusの結果に指定filter「${FILTER}」の手がかりが見当たりません（異なるfilterへの取り違えの疑い）。" >&2
   echo "Unityコンソールログで InvalidOperationException(TestResultCollector.RunFinished) の有無を確認してください。" >&2
-  echo "$raw" | jq '.data.result | fromjson' 2>/dev/null || echo "$raw"
+  extract_result_payload "$raw" || echo "$raw"
   exit 3
 fi
 
-echo "$raw" | jq '.data.result | fromjson'
+extract_result_payload "$raw" || echo "$raw"
 exit 0
