@@ -5,12 +5,12 @@
 ## 前提条件
 
 - Unity 6000.0 以降
-- `com.unity.pipeline` パッケージ（**0.7.0-exp.1 以降**）が対象プロジェクトに導入済みであること
-  - 0.6.0-exp.1 以前には対応していない。0.7 で `get_console_logs` が削除され、プラグイン側の
-    コンパイルエラー判定が `recompile_status` 前提に変わったため。
-    **本パッケージの C# コードは 0.6 版から変更していない**（0.7 でも `CliCommandAttribute` /
-    `CliArgAttribute` は `Unity.Pipeline` アセンブリに残留し、`CommandExecutionResponse` は
-    public のまま。両版のソース直接 diff で確認済み）
+- `com.unity.pipeline` パッケージ（**0.8.0-exp.1 以降**）が対象プロジェクトに導入済みであること
+  - 0.7.0-exp.1 以前には対応していない（未検証）。0.8 で `CliCommandAttribute` / `CliArgAttribute` が
+    `Unity.Pipeline.Attributes` アセンブリへ移り、本パッケージの asmdef がそれを参照する形になったため。
+    `batch_test_status` の結果も 0.8 本体の `*_status` に合わせてネイティブなJSONで返す
+  - 0.6.0-exp.1 以前にも対応していない。0.7 で `get_console_logs` が削除され、プラグイン側の
+    コンパイルエラー判定が `recompile_status` 前提に変わったため
   - 0.5.0-exp.1 以前にも対応していない。0.6 で `TestResultCollector` / `TestExecutionResponse` /
     `TestSummary` / `TestResult` が `internal` 化され、本パッケージが同等の型を自前で持つように
     なったため

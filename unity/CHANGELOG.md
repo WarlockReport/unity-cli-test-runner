@@ -2,6 +2,19 @@
 
 All notable changes to this package are documented in this file.
 
+## [0.4.0] - 2026-10-04
+
+### Changed
+
+- **`com.unity.pipeline` 0.8.0-exp.1 以降が必須になった**（0.7.0-exp.1 以前は非対応・未検証）。
+  0.8 で `CliCommandAttribute`/`CliArgAttribute` が `Unity.Pipeline` アセンブリから
+  `Unity.Pipeline.Attributes` アセンブリへ移った（名前空間 `Unity.Pipeline.Commands` は変わらない）ため、
+  `TestRunnerCli.asmdef` の `references` に `Unity.Pipeline.Attributes` を追加した。
+- **`batch_test_status` の `data.result` がネイティブなJSONオブジェクトになった**（従来はJSON文字列として
+  二重エンコードされていた）。0.8 で本体の `recompile_status`/`test_status` などが同じ形に揃えられたのに
+  合わせた。ステータスファイルが空・パース不能・書き込み途中の場合は例外にせず
+  `{"status":"malformed","raw":"<読んだ文字列>"}` を返す。中身のキー（`status`/`duration`/`summary`/`results`）は変わらない。
+
 ## [0.3.0] - 2026-09-21
 
 ### Changed

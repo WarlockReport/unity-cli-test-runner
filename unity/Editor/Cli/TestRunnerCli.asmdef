@@ -1,7 +1,7 @@
 {
     "name": "TestRunnerCli",
     "rootNamespace": "TestRunnerCli",
-    "references": ["Unity.Pipeline", "Unity.Pipeline.Editor", "UnityEditor.TestRunner", "Unity.Nuget.Newtonsoft-Json"],
+    "references": ["Unity.Pipeline", "Unity.Pipeline.Attributes", "Unity.Pipeline.Editor", "UnityEditor.TestRunner", "Unity.Nuget.Newtonsoft-Json"],
     "includePlatforms": ["Editor"],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

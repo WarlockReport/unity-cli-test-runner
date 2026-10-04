@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEditor.TestTools.TestRunner.Api;
 using UnityEngine;
@@ -58,6 +59,48 @@ namespace TestRunnerCli
             }
 
             return "{\"status\":\"no_tests\",\"message\":\"バッチ実行はまだ開始されていません。\"}";
+        }
+
+        /// <summary>batch_test_status の返り値。ステータスJSONを <see cref="JToken"/> にして返す。
+        /// 文字列のまま返すとコマンド結果の直列化で二重エンコードされ、クライアントが2回パースする
+        /// 必要がある（com.unity.pipeline 0.8 で本体の *_status も同じ理由でJSONを返す形に揃えられた）。</summary>
+        internal static JToken GetStatus()
+        {
+            return ParseStatus(GetStatusJson());
+        }
+
+        /// <summary>ステータスJSON文字列を1つの完全なJSON文書として読む。空・パース不能・
+        /// 文書の後ろに余計な文字が残っている場合は例外にせず status="malformed" を返す。
+        /// ステータスファイルは File.WriteAllText で書かれるため、ポーリングが書き込みの途中に
+        /// 当たると空や途中までの文字列を読むことがあり、それを例外にするとポーリングごと失敗するため。</summary>
+        internal static JToken ParseStatus(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return Malformed(text);
+            }
+
+            try
+            {
+                // DateParseHandling.None: ISO-8601 文字列を Date 型に変換させず、ファイルの値をそのまま通す
+                using (var reader = new JsonTextReader(new StringReader(text)) { DateParseHandling = DateParseHandling.None })
+                {
+                    var document = JToken.ReadFrom(reader);
+
+                    // 短い書き込みが長い旧ファイルを上書きした場合、先頭の文書だけ読めて後ろに残骸が残る。
+                    // それを現在のステータスとして返さないよう、文書の後ろが終端であることを確かめる
+                    return reader.Read() ? Malformed(text) : document;
+                }
+            }
+            catch (JsonReaderException)
+            {
+                return Malformed(text);
+            }
+        }
+
+        private static JObject Malformed(string text)
+        {
+            return new JObject { ["status"] = "malformed", ["raw"] = text ?? string.Empty };
         }
 
         internal static object CancelBatch()
