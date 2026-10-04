@@ -16,15 +16,18 @@
 #   2  ハング・タイムアウト（ポーリング予算超過、`unity cmd`呼び出し自体の失敗を含む）、または
 #      run_tests がUnity側で受理されなかった場合（`.data.result.success` が true でない。
 #      不正な `--mode` 値など）。スキルの「ハング・タイムアウト時の対応」に従う
-#   3  完了は検知したが結果がstaleと疑われる。以下の2パターンがあり、どちらも標準エラー出力の
+#   3  完了は検知したが結果が信用できない。以下の3パターンがあり、どれも標準エラー出力の
 #      メッセージで区別できる:
+#        - test_statusの .data.result を中身のオブジェクトとして取り出せない（想定外のレスポンス
+#          形状。完了判定は status 文字列の grep フォールバックでも成立するため起こりうる）。
+#          標準出力には生JSONを出す
 #        - test_statusの結果がrun_tests発行前のベースラインと文字列として完全一致（同一filterの
 #          連続実行で「前回の完了結果」を取り違えている疑い）。ポーリング中に完了状態かつ
 #          ベースラインと一致する応答を受け取った場合は即断せず、ポーリング予算内は完了とみなさず
 #          待ち続ける（async_tests発行直後のごく短いレース状態を許容するため）。予算を使い切っても
 #          ベースラインと一致したままの場合にのみこのパターンでexit 3となる
 #        - test_statusの結果に指定filterの手がかりが見当たらない（異なるfilterへの取り違えの疑い）
-#      いずれの場合もUnityコンソールログで InvalidOperationException（TestResultCollector.RunFinished）
+#      後の2パターン（stale の疑い）ではUnityコンソールログで InvalidOperationException（TestResultCollector.RunFinished）
 #      の有無を確認すること
 #
 # 注意: test_status --json のレスポンス構造は実地検証済み（2026-08-11）。トップレベルは
@@ -178,5 +181,11 @@ if ! echo "$raw" | grep -qF "$FILTER"; then
   exit 3
 fi
 
-extract_result_payload "$raw" || echo "$raw"
+# 完了判定は grep フォールバックでも成立しうるため、中身を取り出せる保証は無い。取り出せないまま
+# exit 0 にすると「標準出力は中身のオブジェクト」という終了コード0の約束が崩れるので、exit 3 に寄せる
+if ! extract_result_payload "$raw"; then
+  echo "test_statusの .data.result を中身のオブジェクトとして取り出せませんでした（想定外のレスポンス形状。書き込み途中のステータスを読んだ可能性があります）。" >&2
+  echo "$raw"
+  exit 3
+fi
 exit 0
