@@ -1,16 +1,17 @@
 # unity-cli-test-runner
 
-[Unity CLI](https://docs.unity.com/en-us/unity-cli/unity-cli) と [Unity Pipeline package](https://docs.unity3d.com/Packages/com.unity.pipeline@0.7/manual/index.html) を使用して、コード修正後に指定したテストを実行するための Claude Code プラグインです。
+[Unity CLI](https://docs.unity.com/en-us/unity-cli/unity-cli) と [Unity Pipeline package](https://docs.unity3d.com/Packages/com.unity.pipeline@0.8/manual/index.html) を使用して、コード修正後に指定したテストを実行するための Claude Code プラグインです。
 
 対象 Unity プロジェクト側に導入する Unity Editor 拡張（UPMパッケージ）と、Claude Code 側のスキル・専用サブエージェントの 2 つで構成されています。
 
 ## 前提条件
 
 - `unity` CLI と `jq` が PATH 上にあること
-- 対象Unityプロジェクトに `com.unity.pipeline` パッケージ（**0.7.0-exp.1 以降**）が導入済みであること。
-  0.6.0-exp.1 以前には対応していない（0.7 で `get_console_logs` が削除され、コンパイルエラーの
-  判定方法が変わったため。詳細は [ADR-0015](docs/decisions/0015-pipeline-0.7-only.md)。
-  0.5 を切った経緯は [ADR-0012](docs/decisions/0012-vendor-pipeline-internal-types.md)）
+- 対象Unityプロジェクトに `com.unity.pipeline` パッケージ（**0.8.0-exp.1 以降**）が導入済みであること。
+  0.7.0-exp.1 以前には対応していない（0.8 でカスタムコマンドの属性のアセンブリが移り、`*_status` の
+  応答がネイティブなJSONになったため。詳細は [ADR-0016](docs/decisions/0016-pipeline-0.8-only.md)。
+  0.6・0.5 を切った経緯は [ADR-0015](docs/decisions/0015-pipeline-0.7-only.md)・
+  [ADR-0012](docs/decisions/0012-vendor-pipeline-internal-types.md)）
 
 ## インストール
 
