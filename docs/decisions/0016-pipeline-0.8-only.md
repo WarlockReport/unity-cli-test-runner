@@ -37,4 +37,18 @@ UPMレジストリの `com.unity.pipeline` の `dist-tags.latest` が `0.8.0-exp
 
 ## 実地検証
 
-（Task 5 で、検証日・環境・結果を記入する）
+実地検証済み（2026-10-04）。環境: Unity 6000.3.25f1 + `com.unity.pipeline` 0.8.0-exp.1、本パッケージ 0.4.0（プロジェクトの `Packages/` に embedded で配置）。
+
+| 項目 | 結果 |
+|---|---|
+| 本パッケージのコンパイル | エラー無し。`batch_test_status` などのカスタムコマンドが登録される |
+| `unity status` / `editor_status`（127.0.0.1 のみへのバインド後） | 接続でき、`status:"ready"` |
+| `recompile_status` / `test_status` / `batch_test_status` の `.data.result` | 3 つとも `object`（ネイティブなJSON） |
+| `batch_test_status --json` を連続2回取得 | 出力が完全一致（揮発するフィールドは含まれず、stale 検知の前提は崩れない） |
+| `check-editor-ready.sh` | exit 0 |
+| `ensure-compile-clean.sh`（エラー無し） | exit 0 |
+| `ensure-compile-clean.sh`（構文エラーを含む一時ファイルを追加） | exit 1、`console` の詳細に該当エラーが出る。一時ファイル削除後は exit 0 に戻る |
+| `run-editmode-test.sh`（testName にクラス名、assembly） | ともに exit 0、`summarize-test-result.sh` が `SUMMARY` を出す |
+| `run-tests-batch-editmode.sh`（2 クラスにまたがる 2 件） | exit 0、2 件 |
+| `run-playmode-test.sh`（testName にクラス名） | exit 0。ポーリングが完了状態で止まる（0.8 で壊れていた経路） |
+| `run-tests-batch-playmode.sh`（2 クラスにまたがる 2 件） | exit 0、2 件 |
