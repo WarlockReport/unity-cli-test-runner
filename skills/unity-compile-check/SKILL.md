@@ -13,12 +13,14 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 
 ## 前提
 
-- 対象Unityプロジェクトの `com.unity.pipeline` は **0.7.0-exp.1 以降**であること（0.6 以前は
-  非対応）
+- 対象Unityプロジェクトの `com.unity.pipeline` は **0.8.0-exp.1 以降**であること（0.7 以前は
+  非対応・未検証）
 - 各コマンドには必ず明示的な `--timeout <秒>` を付ける（内部で呼ぶスクリプト側が既定値を持つ）
-- 本ドキュメント中の `scripts/...` は、`unity-cli-test-runner` スキルのディレクトリ配下にある
-  スクリプトを相対パス `../unity-cli-test-runner/scripts/...` で参照する（ロジックの複製を避けるため。
-  実行時はこのスキルのベースディレクトリを起点に絶対パスへ解決してから呼び出すこと）
+- スクリプトはロジックの複製を避けるため `unity-cli-test-runner` スキル側のものを呼ぶ。本ドキュメントの
+  コマンドに書かれたパスは、スキルの読み込み時にこのスキルのディレクトリの絶対パスへ展開されるので、
+  そのまま（カレントディレクトリがどこでも）実行してよい。もしパスの先頭が `$` で始まる変数表記のまま
+  残っている場合は、その部分をこのスキルのベースディレクトリの絶対パスで置き換えてから実行する
+  （`../unity-cli-test-runner/...` をカレントディレクトリ基準で実行しても見つからない）
 
 ## ワークフロー
 
@@ -31,7 +33,7 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 ### 0. エディタ起動確認
 
 ```bash
-../unity-cli-test-runner/scripts/check-editor-ready.sh
+${CLAUDE_SKILL_DIR}/../unity-cli-test-runner/scripts/check-editor-ready.sh
 ```
 
 | 終了コード | 意味 | 対応 |
@@ -44,7 +46,7 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 ### 1. コンパイル状態の確定
 
 ```bash
-../unity-cli-test-runner/scripts/ensure-compile-clean.sh [予算秒数(既定60)]
+${CLAUDE_SKILL_DIR}/../unity-cli-test-runner/scripts/ensure-compile-clean.sh [予算秒数(既定60)]
 ```
 
 `clear_console → recompile → recompile_status ポーリング → editor_status によるドメインリロード
@@ -62,7 +64,7 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 | 4 | 内部の`unity cmd`呼び出し（`clear_console`/`recompile`/`editor_status`のいずれか）が失敗したが、メインスレッド不要の `recompile_status` は正常応答した（モーダルダイアログによるメインスレッドブロックの可能性が高い。**真のハングではない**） | ハングとして扱わず、ユーザーにダイアログを閉じてもらうよう依頼する（エディタの再起動は不要）。`.unity`/`.prefab`ファイルをUnity上で開いた状態のまま外部から変更すると、外部変更確認ダイアログが出てこの状態になることが多い |
 
 複数ファイルにまたがる大きめの修正の直後はドメインリロードが長引く傾向があるため、既定を
-待たずに第1引数で予算を伸ばしてよい（例: `ensure-compile-clean.sh 120`）。
+待たずに第1引数で予算を伸ばしてよい（例: `${CLAUDE_SKILL_DIR}/../unity-cli-test-runner/scripts/ensure-compile-clean.sh 120`）。
 
 ### 2. 結果報告
 
@@ -85,7 +87,7 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 「既知の罠」に記載された注意点は `ensure-compile-clean.sh` 内部でそのまま吸収される（ロジック共通の
 ため、このスキル固有の追加事項は無い）。
 
-ただし報告の際は、同スキルの「既知の罠」にある `console` 関連の4件（`get_console_logs` は 0.7 に
+ただし報告の際は、同スキルの「既知の罠」にある `console` 関連の4件（`get_console_logs` は 0.7 以降に
 存在しない／`console` の sticky backfill と cursor／`compilationFailed` の2秒鮮度／`clear_console`
 は sticky なコンパイルエラーを消さない）を踏まえること。特に **`console` の出力に出たエラーが
 「今回の修正で出たもの」とは限らない**（sticky エントリは次のコンパイル完了まで残る）。

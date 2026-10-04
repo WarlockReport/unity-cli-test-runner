@@ -16,21 +16,24 @@
 #   2  ハング・タイムアウト（ポーリング予算超過、`unity cmd`呼び出し自体の失敗を含む）、または
 #      run_tests がUnity側で受理されなかった場合（`.data.result.success` が true でない。
 #      不正な `--mode` 値など）。スキルの「ハング・タイムアウト時の対応」に従う
-#   3  完了は検知したが結果がstaleと疑われる。以下の2パターンがあり、どちらも標準エラー出力の
+#   3  完了は検知したが結果が信用できない。以下の3パターンがあり、どれも標準エラー出力の
 #      メッセージで区別できる:
+#        - test_statusの .data.result を中身のオブジェクトとして取り出せない（想定外のレスポンス
+#          形状。完了判定は status 文字列の grep フォールバックでも成立するため起こりうる）。
+#          標準出力には生JSONを出す
 #        - test_statusの結果がrun_tests発行前のベースラインと文字列として完全一致（同一filterの
 #          連続実行で「前回の完了結果」を取り違えている疑い）。ポーリング中に完了状態かつ
 #          ベースラインと一致する応答を受け取った場合は即断せず、ポーリング予算内は完了とみなさず
 #          待ち続ける（async_tests発行直後のごく短いレース状態を許容するため）。予算を使い切っても
 #          ベースラインと一致したままの場合にのみこのパターンでexit 3となる
 #        - test_statusの結果に指定filterの手がかりが見当たらない（異なるfilterへの取り違えの疑い）
-#      いずれの場合もUnityコンソールログで InvalidOperationException（TestResultCollector.RunFinished）
+#      後の2パターン（stale の疑い）ではUnityコンソールログで InvalidOperationException（TestResultCollector.RunFinished）
 #      の有無を確認すること
 #
 # 注意: test_status --json のレスポンス構造は実地検証済み（2026-08-11）。トップレベルは
 #   { success, command, data: { command, parameters, result, target }, errors, warnings }
-# の形だが、data.result は他コマンド（run_tests/list_tests）と異なり**JSON文字列として二重
-# エンコード**されている点に注意（`jq '.data.result | fromjson'` で中身のオブジェクトを取り出す）。
+# の形。data.result は com.unity.pipeline 0.8 以降ネイティブなJSONオブジェクトで、0.7 以前は
+# JSON文字列として二重エンコードされていた（どちらの形も extract_result_payload が受け付ける）。
 # 中身のオブジェクトは { status, duration, summary: {total,passed,failed,skipped,inconclusive},
 # results: [{FullName,Status,Duration,Message,StackTrace}] } で、summaryとそのキーは小文字、
 # results内の各キーはPascalCase（大文字始まり）という混在がある。
@@ -69,11 +72,12 @@ run_unity_cmd() {
 }
 
 # test_status --json の生レスポンスから中身のstatus文字列を取り出す。
-# data.result はJSON文字列として二重エンコードされているため fromjson で1段階デコードする。
-# 構造が想定と異なりjqが失敗/空を返した場合は呼び出し元でgrepフォールバックする。
+# 中身の取り出し（二重エンコード文字列／ネイティブJSONの両対応）は extract_result_payload（_lib.sh）が行う。
+# 構造が想定と異なり取り出せなかった場合は空文字列を返し、呼び出し元でgrepフォールバックする。
 extract_status() {
-  local raw="$1"
-  echo "$raw" | jq -r '(.data.result | fromjson | .status) // empty' 2>/dev/null || true
+  local raw="$1" payload
+  payload="$(extract_result_payload "$raw")" || return 0
+  echo "$payload" | jq -r '.status // empty' 2>/dev/null || true
 }
 
 echo "[1/4] test_status でベースラインを取得（同一filter連続実行時のstale検知用）" >&2
@@ -166,16 +170,22 @@ echo "[4/4] 結果の整合性チェック（ベースライン比較・filter�
 if [ -n "$BASELINE" ] && [ "$raw" = "$BASELINE" ]; then
   echo "test_statusの結果がrun_tests発行前のベースラインと完全一致しました。新しい実行結果を確認できませんでした（同一filter連続実行時のstale結果の疑い）。" >&2
   echo "Unityコンソールログで InvalidOperationException(TestResultCollector.RunFinished) の有無を確認してください。" >&2
-  echo "$raw" | jq '.data.result | fromjson' 2>/dev/null || echo "$raw"
+  extract_result_payload "$raw" || echo "$raw"
   exit 3
 fi
 
 if ! echo "$raw" | grep -qF "$FILTER"; then
   echo "test_statusの結果に指定filter「${FILTER}」の手がかりが見当たりません（異なるfilterへの取り違えの疑い）。" >&2
   echo "Unityコンソールログで InvalidOperationException(TestResultCollector.RunFinished) の有無を確認してください。" >&2
-  echo "$raw" | jq '.data.result | fromjson' 2>/dev/null || echo "$raw"
+  extract_result_payload "$raw" || echo "$raw"
   exit 3
 fi
 
-echo "$raw" | jq '.data.result | fromjson'
+# 完了判定は grep フォールバックでも成立しうるため、中身を取り出せる保証は無い。取り出せないまま
+# exit 0 にすると「標準出力は中身のオブジェクト」という終了コード0の約束が崩れるので、exit 3 に寄せる
+if ! extract_result_payload "$raw"; then
+  echo "test_statusの .data.result を中身のオブジェクトとして取り出せませんでした（想定外のレスポンス形状。書き込み途中のステータスを読んだ可能性があります）。" >&2
+  echo "$raw"
+  exit 3
+fi
 exit 0

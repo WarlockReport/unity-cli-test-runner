@@ -4,9 +4,8 @@
 # clear_console → recompile → recompile_status ポーリング → editor_status によるドメインリロード
 # 完了の安定確認 → recompile_status の読み直し（判定）＋ console（詳細取得）を順に実行し、
 # コンパイルが確定していて（Unity側が変更を反映しきっていて）、かつエラーが無いかを確認する。
-# com.unity.pipeline 0.7.0-exp.1 以降が前提（0.7 で get_console_logs が削除されたため、
-# コンパイルエラーの判定は recompile_status の failed/compilationFailed を一次情報とし、
-# console は詳細取得専用にしている）。
+# com.unity.pipeline 0.8.0-exp.1 以降が前提（コンパイルエラーの判定は recompile_status の
+# failed/compilationFailed を一次情報とし、console は詳細取得専用にしている）。
 #
 # 使い方: ensure-compile-clean.sh [ポーリング予算秒数(既定60)]
 #
@@ -42,13 +41,12 @@
 # - `unity cmd` は `--json` を付けない場合、TSV形式（`Command\tSuccess\tResult\tParameters`）で
 #   応答を返す。jqでパースする呼び出しには必ず `--json` を付けること（付け忘れると空文字列に
 #   フォールバックし続け、ポーリングが常にタイムアウトする）
-# - recompile_status --json の data.result は他コマンド（run_tests/list_tests）と異なり
-#   JSON文字列として二重エンコードされている（test_statusと同じ形）。中身は
-#   {status, failed, errors, compilationFailed} で、statusは
-#   triggered/compiling/completed/up_to_date/failed を取る（failedは0.7でコンパイルエラーが
+# - recompile_status --json の data.result は 0.8 以降ネイティブなJSONオブジェクト（0.7 以前は
+#   JSON文字列として二重エンコードされていた。両方の形を extract_result_payload が受け付ける）。
+#   中身は {status, failed, errors, compilationFailed} で、statusは
+#   triggered/compiling/completed/up_to_date/failed を取る（failedはコンパイルエラーが
 #   残っている場合。このスクリプトはポーリングの終端として扱い、エラー有無の判定は
-#   ステップ5に一本化している）。`jq '.data.result | fromjson | .status'` 相当の
-#   取り出しは read_result_field が行う
+#   ステップ5に一本化している）。フィールドの取り出しは read_result_field が行う
 # - editor_status --json / console --json の data.result はネイティブなJSONオブジェクト
 #   （二重エンコードされていない）。editor_statusは {status, compiling, domainReloadInProgress,
 #   playMode, ...}、consoleは {entries, cursor, session, returned, dropped, reset,
@@ -255,17 +253,15 @@ report_dialog_block_and_exit() {
 }
 
 # recompile / recompile_status の `.data.result` から1フィールドを読む。
-# recompile_status の result は 0.7 でもJSON文字列として二重エンコードされている一方、
-# recompile 側の符号化は版差がありうるため、二重エンコード→ネイティブの順に試す。
+# 中身の取り出し（二重エンコード文字列／ネイティブJSONの両対応）は extract_result_payload（_lib.sh）が行う。
 # jq の `//` はfalseも「無い」と扱ってしまい failed=false を空文字列に潰すので、
 # 存在確認には has() を使う（jq 1.7.1 で実測）。
 # 取り出せない場合は空文字列を返し、呼び出し元が「判定不能」として扱えるようにする。
 read_result_field() {
-  local raw="$1" field="$2"
-  echo "$raw" | jq -r --arg f "$field" '
-    .data.result
-    | if type == "string" then (fromjson? // {}) else . end
-    | if type == "object" and has($f) then .[$f] else empty end
+  local raw="$1" field="$2" payload
+  payload="$(extract_result_payload "$raw")" || return 0
+  echo "$payload" | jq -r --arg f "$field" '
+    if type == "object" and has($f) then .[$f] else empty end
   ' 2>/dev/null || true
 }
 

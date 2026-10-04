@@ -1,5 +1,6 @@
 #if TESTRUNNER_CLI_AVAILABLE
 using System;
+using Newtonsoft.Json.Linq;
 using Unity.Pipeline.Commands;
 
 namespace TestRunnerCli
@@ -44,9 +45,9 @@ namespace TestRunnerCli
         }
 
         [CliCommand("batch_test_status", "run_tests_batch_playmodeの実行状況を取得する", MainThreadRequired = false, Tags = new[] { "tests" })]
-        public static string BatchTestStatus()
+        public static JToken BatchTestStatus()
         {
-            return TestRunnerBatchPlayModeRunner.GetStatusJson();
+            return TestRunnerBatchPlayModeRunner.GetStatus();
         }
 
         [CliCommand("batch_cancel_tests", "実行中のPlayModeバッチテストをキャンセルする（パッケージ本体のcancel_testsはこのバッチ実行には作用しない）", MainThreadRequired = true, Tags = new[] { "tests" })]

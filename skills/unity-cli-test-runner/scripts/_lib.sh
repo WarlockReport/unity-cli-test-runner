@@ -125,3 +125,19 @@ run_unity_cmd_resilient() {
     elapsed=$((elapsed + retry_interval))
   done
 }
+
+# `unity cmd ... --json` の生JSONから `.data.result` の中身を取り出し、整形したJSONとして標準出力へ出す。
+# com.unity.pipeline 0.8 以降、recompile_status / test_status などの `*_status` はネイティブなJSONを
+# 返すが、0.7 以前や旧版の本UPMパッケージ（batch_test_status）は同じ中身をJSON文字列として二重
+# エンコードして返す。プラグインとUPMパッケージは別々に更新されるため、両方の形を受け付ける。
+# 戻り値: 0=取り出せた / 1=取り出せなかった（null・スカラー・パース不能・欠落。何も出力しない）
+extract_result_payload() {
+  local raw="$1" payload
+  payload="$(echo "$raw" | jq -c '
+    .data.result
+    | if type == "string" then fromjson else . end
+    | if type == "object" or type == "array" then . else error("unexpected result shape") end
+  ' 2>/dev/null)" || return 1
+  [ -n "$payload" ] || return 1
+  echo "$payload" | jq .
+}

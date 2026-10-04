@@ -21,3 +21,5 @@
 | [0013](0013-dialog-block-detection-in-compile-check-polling.md) | ensure-compile-clean.shへのダイアログブロック判別の移植（`.unity`/`.prefab`外部変更ダイアログによる誤ハング判定の解消） | Accepted (2026-09-06) |
 | [0014](0014-mechanical-report-derivation.md) | テスト結果報告の機械導出化（サブエージェントの二重報告・楽観的幻覚への対策） | Accepted (2026-09-21) |
 | [0015](0015-pipeline-0.7-only.md) | `com.unity.pipeline` 0.7.0-exp.1 への一本化とコンパイルエラー判定の一次情報の移動 | Accepted (2026-09-21) |
+| [0016](0016-pipeline-0.8-only.md) | `com.unity.pipeline` 0.8.0-exp.1 への一本化と `*_status` のネイティブJSON化への追従 | Accepted (2026-10-04) |
+| [0017](0017-skill-script-path-via-claude-skill-dir.md) | スキルのスクリプト参照を `${CLAUDE_SKILL_DIR}` 起点の絶対パス表記にする | Accepted (2026-10-04) |
