@@ -26,3 +26,4 @@
 | [0018](0018-move-plugin-to-subdirectory.md) | Claude Code プラグイン本体を `claude-plugin/` サブディレクトリへ移す | Accepted (2026-10-15) |
 | [0019](0019-in-repo-test-project-and-e2e.md) | リポジトリ内に検証用 Unity プロジェクト（TestProject）と E2E 照合スクリプトを置く | Accepted (2026-10-15) |
 | [0020](0020-exact-fullname-execution-via-batch.md) | 単一テスト・クラスの実行を、完全一致のバッチ実行に切り替える | Accepted (2026-10-15) |
+| [0021](0021-stale-plugin-get-console-logs-report.md) | 「ensure-compile-clean.sh が get_console_logs を呼んで exit 2 で止まる」報告への対応 | Accepted (2026-10-15) |
