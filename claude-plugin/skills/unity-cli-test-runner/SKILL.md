@@ -161,17 +161,20 @@ exit 2を受け取った時点で追加の直接確認を行う必要はない�
     またはgrepなら `\.ClassName\.` のように前後にドットを含むパターンを使う）。単純な部分一致では、
     対象クラス名が別クラス名の末尾に含まれるだけのケース（例: `FooTest` を検索したつもりが
     `BarFooTest` のメソッドまで一致してしまう）で候補数を誤カウントする
-    （ `run_tests` 側のfilterは厳密一致で実行結果自体は正しかったが、
-    ステップ2の候補数とステップ6の期待件数比較が食い違い、誤った異常検知につながった事例あり）
+  - **ここで絞り込んだ `FullName` の一覧が、そのまま実行対象になる。** ステップ5では、この一覧を
+    完全一致で実行するバッチスクリプトに渡す。クラス名や `FullName` を `--filter_type testName` に
+    渡して実行し直してはならない（`testName` は部分一致のため、名前の先頭が同じ別クラスや別メソッドまで
+    実行される。「既知の罠」参照）
   - 0件: 誤字や存在しないテスト名の可能性を報告する
-  - 1件: そのまま次へ
-  - 1アセンブリの全件に一致: ステップ5で `--filter_type assembly` を使う
+  - 1件: そのまま次へ（ステップ5ではその1件の `FullName` をバッチスクリプトに渡す）
+  - 1アセンブリの全件に一致: ステップ5で `--filter_type assembly` を使う。ただし `assembly` も部分一致
+    のため、`list_tests` の `Assembly` に、対象のアセンブリ名を部分文字列として含む別のアセンブリ
+    （例: `Foo.Tests` に対する `Foo.Tests.Extra`）があれば、`assembly` は使わず、そのアセンブリに属する
+    `FullName` の一覧をバッチスクリプトに渡す
   - **単一クラスに閉じた複数件**（1つのクラス名に一致するメソッドが複数、かつ assembly より狭い粒度）:
-    対話や確認を挟まず、ステップ5で `--filter_type testName` にクラス名をそのまま渡す1回の呼び出しで
-    実行する（実地検証済み: クラス名を渡すと所属する全メソッドが1回の呼び出しで実行される）。これが
-    テスト実行依頼で最も頻出する粒度であり、「クラスを実行して」という指示自体がその全メソッド実行の
-    意図とみなせるため、ここで実行をためらわない（下記「既知の罠」参照）。単一テストのループ実行が
-    必要なのは、複数クラスにまたがる個別 `FullName` の組み合わせをユーザーから明示された場合のみである
+    対話や確認を挟まず、ステップ5でそのクラスの `FullName` の一覧をバッチスクリプトに渡す1回の呼び出しで
+    実行する。これがテスト実行依頼で最も頻出する粒度であり、「クラスを実行して」という指示自体がその
+    全メソッド実行の意図とみなせるため、ここで実行をためらわない
   - **上記以外で対象を一意に絞れない複数件**（複数クラスにまたがる、または曖昧な自然言語で
     どのクラス/テストを指すか確定できない）: 候補一覧をユーザーに提示して指定を仰ぐ。
     自己判断で全件ループ実行はしない
@@ -182,8 +185,8 @@ exit 2を受け取った時点で追加の直接確認を行う必要はない�
 
 | 対象の性質 | 実行方法 |
 | --- | --- |
-| 単一クラス／単一アセンブリ全体 | `scripts/run-editmode-test.sh`（EditMode）または `scripts/run-playmode-test.sh`（PlayMode） |
-| 複数クラスにまたがる個別FullNameの集合 | `scripts/run-tests-batch-editmode.sh`（EditMode）または `scripts/run-tests-batch-playmode.sh`（PlayMode） |
+| 単一テスト／単一クラス／複数クラスにまたがる個別FullNameの集合 | ステップ2で得た `FullName` の一覧を `scripts/run-tests-batch-editmode.sh`（EditMode）または `scripts/run-tests-batch-playmode.sh`（PlayMode）に渡す |
+| 単一アセンブリ全体（名前を部分文字列として含む別アセンブリが無い場合） | `scripts/run-editmode-test.sh <アセンブリ名> assembly`（EditMode）または `scripts/run-playmode-test.sh <アセンブリ名> assembly`（PlayMode） |
 
 同一呼び出し内で複数グループが混在してもよい（例: EditModeの単一クラス実行1件 + PlayModeの
 複数クラス横断バッチ1件）。ステップ5で各グループを順に実行する。
@@ -209,53 +212,47 @@ exit 2を受け取った時点で追加の直接確認を行う必要はない�
 
 ### 5. 実行
 
-対象に含まれる `Mode` によって実行方法が異なる。**いずれの方法でも、標準出力を一時ファイルへ
+ステップ3の分類と `Mode` によって実行方法が異なる。**いずれの方法でも、標準出力を一時ファイルへ
 保存する（`OUT="$(mktemp -t unity-test)"` を用意し `> "$OUT"` でリダイレクトする）。ステップ6では
 この `$OUT` をそのまま使い、テストをここで再実行しない。**
 
-**`Mode: EditMode` のみの場合**（`scripts/run-editmode-test.sh` を必ず使う。直接
-`unity cmd run_tests --mode EditMode` を呼んではならない — 「禁止事項」参照）:
+**単一テスト・クラス一括・複数クラス横断の場合（大半の依頼はこれ）**: ステップ2で `list_tests` から
+絞り込んだ `FullName` の一覧をカンマ区切りにしてバッチスクリプトに渡す（1件でもよい）。バッチ
+スクリプトは完全一致で実行するため、名前の先頭が同じ別クラス・別メソッドを巻き込まない。
 
 ```
 OUT="$(mktemp -t unity-test)"
-${CLAUDE_SKILL_DIR}/scripts/run-editmode-test.sh <値> <testName|assembly> [timeout] > "$OUT"
+# EditMode（直接 unity cmd run_tests_batch_editmode を呼ばない — 「禁止事項」参照）
+${CLAUDE_SKILL_DIR}/scripts/run-tests-batch-editmode.sh <カンマ区切りFullName> [timeout] > "$OUT"
+# PlayMode（直接 unity cmd run_tests_batch_playmode を呼ばない — 「禁止事項」参照）
+${CLAUDE_SKILL_DIR}/scripts/run-tests-batch-playmode.sh <カンマ区切りFullName> [timeout] [ポーリング予算秒数] > "$OUT"
 ```
 
-このスクリプトが `run_tests` の起動呼び出しをテスト起動直後のドメインリロードによる一時的な
-Pipeline切断（「既知の罠」参照）に対して有限予算でリトライしたうえで、生のレスポンスJSONを
-標準出力に返す（EditModeの `run_tests` は同期応答のためポーリングは不要）。結果の読み方は
-ステップ6を参照。
+EditMode のバッチは同期応答で、生のレスポンスJSONを標準出力に返す。PlayMode のバッチは非同期実行から
+`batch_test_status` の完了確認までを1コマンドにまとめ、最終結果JSONを返す。どちらもテスト起動直後の
+ドメインリロードによる一時的なPipeline切断（「既知の罠」参照）を有限予算のリトライで吸収する。
 
-**`Mode: PlayMode` を含む場合**（`scripts/run-playmode-test.sh` を必ず使う。直接
-`unity cmd run_tests --mode PlayMode` を呼んではならない — 「禁止事項」参照）:
+**単一アセンブリ全体の場合**（ステップ2で、名前を部分文字列として含む別アセンブリが無いと確認したとき
+のみ）: `--filter_type assembly` で実行する。直接 `unity cmd run_tests` を呼んではならない（「禁止事項」参照）。
 
 ```
 OUT="$(mktemp -t unity-test)"
-${CLAUDE_SKILL_DIR}/scripts/run-playmode-test.sh <値> <testName|assembly> [timeout] [ポーリング予算秒数] > "$OUT"
+# EditMode
+${CLAUDE_SKILL_DIR}/scripts/run-editmode-test.sh <アセンブリ名> assembly [timeout] > "$OUT"
+# PlayMode
+${CLAUDE_SKILL_DIR}/scripts/run-playmode-test.sh <アセンブリ名> assembly [timeout] [ポーリング予算秒数] > "$OUT"
 ```
 
-このスクリプトが `run_tests --async_tests` の実行から `test_status` の完了確認・結果の簡易整合性
-チェックまでを1コマンドにまとめる（詳細は同スクリプトのヘッダコメント参照）。標準出力に最終結果
+`run-playmode-test.sh` は `run_tests --async_tests` の実行から `test_status` の完了確認・結果の簡易整合性
+チェックまでを1コマンドにまとめる（詳細は同スクリプトのヘッダコメント参照）。標準出力の最終結果
 JSON（`test_status`由来。`status`/`duration`/`summary`/`results`を含む。EditModeの`run_tests`直接
-呼び出しとはキーの大文字小文字が異なる点に注意。詳細はステップ6参照）が `$OUT` へ保存されるので、
-これをステップ6の結果確認に使う。
+呼び出しとはキーの大文字小文字が異なる点に注意。詳細はステップ6参照）をステップ6の結果確認に使う。
 
-- 単一テスト: `--filter_type testName` に ステップ2で確認した完全一致の `FullName` を渡す
-- クラス一括: `--filter_type testName` にクラス名を渡す（ステップ2「単一クラスに閉じた複数件」参照）
-- アセンブリ全体: `--filter_type assembly` にアセンブリ名を渡す
-- 複数クラスにまたがる個別テストをまとめて実行したい場合、`--filter` にカンマ区切りで複数の
-  `FullName` を渡しては**ならない**（「既知の罠」参照）。単一テスト呼び出し（PlayModeの場合は
-  `run-playmode-test.sh` 呼び出し）をテスト数分ループする。PlayModeでは1回の呼び出しが完了確認
-  まで完全にブロッキングするため、ループのイテレーション間で待機が自然に強制される
+- `run-editmode-test.sh` / `run-playmode-test.sh` の第2引数に `testName` を使わない（部分一致で
+  別クラス・別メソッドを巻き込む。「既知の罠」参照）
 - `--timeout` の目安: EditMode の単一〜少数テストは `120`、アセンブリ全体の実行は `300` を起点に
-  する（`list_tests` 等の照会系は `30`）。`run-playmode-test.sh` の `timeout` 引数（第3引数）も
-  同様の目安、ポーリング予算秒数（第4引数、既定90）は対象規模に応じて調整してよい
-
-**バッチコマンド（複数クラス横断）を使う場合**（同様に `> "$OUT"` で保存する）:
-
-- EditMode: `${CLAUDE_SKILL_DIR}/scripts/run-tests-batch-editmode.sh <カンマ区切りFullName> [timeout] > "$OUT"`（直接
-  `unity cmd run_tests_batch_editmode` を呼ばない。「禁止事項」参照）
-- PlayMode: `${CLAUDE_SKILL_DIR}/scripts/run-tests-batch-playmode.sh <カンマ区切りFullName> [timeout] [ポーリング予算秒数] > "$OUT"`（直接 `unity cmd run_tests_batch_playmode` を呼ばない。「禁止事項」参照）
+  する（`list_tests` 等の照会系は `30`）。PlayMode のスクリプトの `timeout` 引数も同様の目安、
+  ポーリング予算秒数（既定90）は対象規模に応じて調整してよい
 
 **複数グループがある場合の失敗時の扱い**: テストのPass/Failは通常の結果として扱い、他のグループの
 実行を止めない。`unity cmd` 呼び出し自体のハング・タイムアウトは「ハング・タイムアウト時の対応」に
@@ -354,17 +351,19 @@ JSON（`test_status`由来。`status`/`duration`/`summary`/`results`を含む。
   接続済みエディタ個別のコンパイル状況（`compiling`/`domainReloadInProgress`等）を確認したい
   場合は `unity cmd editor_status --timeout 30` を使う
 - `--filter_type` に指定できる値は `testName` / `assembly` / `category` の3つのみ。`FullName` や
-  `class` といった文字列は**存在せずエラーになる**（`FullName` は実地検証済み: `Invalid filterType 'FullName'`）。
-  クラス単位で実行する専用の filter_type は無いが、`testName` にクラス名をそのまま渡すと所属する全
-  メソッドが1回の呼び出しで実行される（実地検証済み。ステップ2「単一クラスに閉じた複数件」参照）
+  `class` といった文字列は**存在せずエラーになる**（`FullName` は実地検証済み: `Invalid filterType 'FullName'`）
+- **`--filter_type testName` と `assembly` は、大文字小文字を区別しない部分一致で照合される**
+  （`com.unity.pipeline` 0.8.0-exp.1 のソースと実測で確認、2026-10-15。`testName` は各テストの
+  `FullName`、`assembly` はアセンブリ名に対して部分文字列を含むかを見る）。そのため、クラスの完全名
+  `Ns.FooTests` を渡しても `Ns.FooTestsExtra` のメソッドまで、単一テストの完全名 `Ns.FooTests.Run` を
+  渡しても `Ns.FooTests.RunTwice` まで実行される。TestProject での検証中に、`PrefixFixture` を
+  指定したところ `PrefixFixtureExtra` まで実行された事例を確認した。単一テスト・クラス一括の実行は、
+  `list_tests` で得た完全一致の `FullName` の一覧を `run_tests_batch_editmode`/`run_tests_batch_playmode`
+  （`Filter.testNames` 配列に完全一致名を直接詰める専用コマンド。実測で完全一致を確認済み）に
+  スクリプト経由で渡して行う
 - `--filter_type testName` に**カンマ区切りで複数の完全名を渡すと、エラーにならず `success:true` のまま
-  `Summary.Total:0` で静かに空振りする**（実地検証済み）。複数クラスにまたがる個別テストが必要な場合は
-  呼び出しをループする。複数クラスにまたがる完全名の集合を1回で実行したい場合は、この罠を踏む
-  `--filter_type testName`のカンマ区切りではなく、`run_tests_batch_editmode`/
-  `run_tests_batch_playmode`（`Filter.testNames`配列に完全一致名を直接詰める専用コマンド）を使う
-- `--filter_type testName` はクラス名（完全一致のクラス名文字列）を渡すと所属メソッド全体にマッチする
-  ことを確認済み。それ以外の部分一致・プレフィックス一致の挙動は引き続き未検証。基本は `list_tests` で
-  得た完全一致の `FullName`、またはクラス名をそのまま渡す
+  `Summary.Total:0` で静かに空振りする**（実地検証済み。部分一致の照合でカンマを含む `FullName` が
+  存在しないため）。複数の完全名の集合はバッチスクリプトで実行する
 - `--filter_type category` は未検証（検証環境のテストは現状すべて `Categories:["Uncategorized"]`）。
   使う場合は事前に実地確認すること
 - コンパイル完了直後・PlayMode突入直後のドメインリロード中（通常1〜2秒）、`unity cmd` が
@@ -446,11 +445,13 @@ JSON（`test_status`由来。`status`/`duration`/`summary`/`results`を含む。
 - タイムアウト・ハング時に原因（モーダルダイアログ等）を潰さないまま盲目的に再試行しない
   （1回で見切ってユーザーに確認を依頼する。原因解消を確認した後の実行はこの禁止に当たらない）
 - `--filter_type testName` にカンマ区切りの複数値を渡さない
-- EditModeのテスト実行は必ず `scripts/run-editmode-test.sh` 経由で行う。`unity cmd run_tests
+- 単一テスト・クラス一括の実行に `--filter_type testName` を使わない（部分一致で対象外のテストまで
+  実行される）。ステップ2で得た `FullName` の一覧をバッチスクリプトに渡す
+- EditModeのアセンブリ全体の実行は必ず `scripts/run-editmode-test.sh` 経由で行う。`unity cmd run_tests
   --mode EditMode` を直接（スクリプトを介さず）呼ばない
 - バッチのEditModeテスト実行は必ず `scripts/run-tests-batch-editmode.sh` 経由で行う。`unity cmd
   run_tests_batch_editmode` を直接（スクリプトを介さず）呼ばない
-- PlayModeのテスト実行は必ず `scripts/run-playmode-test.sh` 経由で行う。`unity cmd run_tests
+- PlayModeのアセンブリ全体の実行は必ず `scripts/run-playmode-test.sh` 経由で行う。`unity cmd run_tests
   --mode PlayMode` を直接（スクリプトを介さず）呼ばない
 - バッチのPlayModeテスト実行は必ず `scripts/run-tests-batch-playmode.sh` 経由で行う。`unity cmd
   run_tests_batch_playmode` を直接（スクリプトを介さず）呼ばない

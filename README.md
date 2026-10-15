@@ -30,6 +30,30 @@
 > `/plugin uninstall unity-cli-test-runner` （または該当プラグインの削除）と
 > 旧マーケットプレイスの削除を行った上で、上記コマンドで入れ直してください。
 
+#### プラグインの更新
+
+このマーケットプレイスの自動更新は既定で無効です。Claude Code はマーケットプレイスを登録した時点の内容を
+手元に複製して使い、明示的に更新しない限りその複製は古いままです。そのため、**以前にマーケットプレイスを登録して
+いた環境では、新しくインストールした場合でも、登録した時点の古い版が入ります**。
+また、マーケットプレイスを更新しないまま `claude plugin update` だけを実行しても、
+古い複製と比べて「最新版です」と表示され、更新されません。
+
+インストール・更新の前と、`com.unity.pipeline` の版を上げたときは、**必ずマーケットプレイスの更新を先に**行ってください
+（シェルで実行し、その後 Claude Code のセッションで `/reload-plugins` を実行するか、セッションを開き直します）。
+
+```
+claude plugin marketplace update wr-unity-cli-tools-dev
+claude plugin update wr-unity-cli-tools@wr-unity-cli-tools-dev
+```
+
+`/plugin` の **Marketplaces** で `wr-unity-cli-tools-dev` を選び、**Enable auto-update** を選ぶと、以後は自動で更新されます。
+導入済みの版は、シェルで `claude plugin details wr-unity-cli-tools` を実行すると確認できます。
+
+> **古い版のまま使い続けた場合の症状**: プラグイン 0.3.x 以前の `ensure-compile-clean.sh` は、
+> `com.unity.pipeline` 0.7 で削除された `get_console_logs` を最終段で呼ぶため、コンパイルが成功していても
+> 終了コード 2（タイムアウト扱い）で止まります。この症状が出たら、上記の手順でプラグインを更新してください
+> （`com.unity.pipeline` 0.8 にはプラグイン 0.5.0 以降が対応しています）。
+
 ### 2. Unity側パッケージ
 
 対象Unityプロジェクトの Package Manager → `+` → `Add package from git URL...` に以下を入力します。
