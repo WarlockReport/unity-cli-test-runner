@@ -107,6 +107,53 @@ check_connection() {
   record_pass "0-connection"
 }
 
+# 段階 3〜5: EditMode のクラス単位・アセンブリ単位・バッチ実行の集計を照合する
+stage_editmode() {
+  run_test_case "3-editmode-class-allpass" editmode "total=2 passed=2 failed=0 skipped=0" \
+    bash "${SCRIPTS}/run-editmode-test.sh" "Fixtures.EditMode.AllPassFixture" testName
+
+  if run_test_case "3-editmode-class-mixed" editmode "total=5 passed=3 failed=1 skipped=1" \
+    bash "${SCRIPTS}/run-editmode-test.sh" "Fixtures.EditMode.MixedResultFixture" testName; then
+    expect_fail_line "3-editmode-class-mixed" "Fixtures.EditMode.MixedResultFixture.Fail_Intentionally"
+  fi
+
+  # AllPass 2 + MixedResult 5 + Prefix 1 + PrefixExtra 1 + SameName 1
+  run_test_case "4-editmode-assembly" editmode "total=10 passed=8 failed=1 skipped=1" \
+    bash "${SCRIPTS}/run-editmode-test.sh" "Fixtures.EditMode" assembly
+
+  # 複数クラスにまたがる個別の FullName を 1 回で実行できるか（Pass 2 + Fail 1）
+  run_test_case "5-editmode-batch" editmode "total=3 passed=2 failed=1 skipped=0" \
+    bash "${SCRIPTS}/run-tests-batch-editmode.sh" \
+    "Fixtures.EditMode.AllPassFixture.Pass_First,Fixtures.EditMode.MixedResultFixture.Fail_Intentionally,Fixtures.EditMode.PrefixFixtureExtra.Pass_Only"
+}
+
+# 段階 6: スキルが前提にしている Unity 側の挙動が、今も変わっていないかを確かめる
+stage_unity_traps() {
+  # testName にカンマ区切りで複数名を渡すと、エラーにならず 0 件で空振りする。
+  # この罠があるためにバッチ専用コマンドを用意している。挙動が変わったら設計を見直す合図になる
+  run_test_case "6-trap-comma-testname" editmode "total=0 passed=0 failed=0 skipped=0" \
+    bash "${SCRIPTS}/run-editmode-test.sh" "Fixtures.EditMode.AllPassFixture,Fixtures.EditMode.PrefixFixture" testName
+
+  # list_tests の Mode でモードを裏取りする手順の前提: 同名クラスがモードごとに別々に列挙される
+  local label="6-trap-list-tests-mode" em pm
+  if ! run_saved "${label}-editmode" unity cmd list_tests --mode EditMode --json --timeout 30 \
+    || ! run_saved "${label}-playmode" unity cmd list_tests --mode PlayMode --json --timeout 30; then
+    record_fail "$label" "list_tests の呼び出しに失敗（${OUT_DIR}/${label}-*.out を参照）"
+    return 1
+  fi
+  em="$(jq -r '[.data.result.Tests[] | select(.FullName | test("\\.SameNameFixture\\.")) | "\(.FullName)@\(.Mode)"] | sort | join(",")' \
+    "${OUT_DIR}/${label}-editmode.out" 2>/dev/null)"
+  pm="$(jq -r '[.data.result.Tests[] | select(.FullName | test("\\.SameNameFixture\\.")) | "\(.FullName)@\(.Mode)"] | sort | join(",")' \
+    "${OUT_DIR}/${label}-playmode.out" 2>/dev/null)"
+  if [ "$em" = "Fixtures.EditMode.SameNameFixture.Pass_Only@EditMode" ] \
+    && [ "$pm" = "Fixtures.PlayMode.SameNameFixture.Pass_Only@PlayMode" ]; then
+    record_pass "$label"
+    return 0
+  fi
+  record_fail "$label" "EditMode=[${em}] PlayMode=[${pm}]"
+  return 1
+}
+
 report() {
   echo "----" >&2
   echo "E2E 集計: 一致 ${passed} 件 / 不一致 ${failed} 件（生の出力: ${OUT_DIR}）" >&2
@@ -121,6 +168,8 @@ main() {
   if ! expect_exit "2-ensure-compile-clean" 0 bash "${SCRIPTS}/ensure-compile-clean.sh"; then report; exit 2; fi
 
   # --- 段階 3 以降 ---
+  stage_editmode
+  stage_unity_traps
 
   report
   [ "$failed" -eq 0 ]
