@@ -43,9 +43,10 @@ https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity
 ## 構成
 
 ```
-.claude-plugin/    Claude Codeプラグイン・マーケットプレイスmanifest
-skills/            unity-cli-test-runner スキル本体（SKILL.md・スクリプト）
-agents/            テスト実行専用サブエージェント定義
+.claude-plugin/    マーケットプレイスmanifest
+claude-plugin/     Claude Codeプラグイン本体（インストール時にこのディレクトリだけが複製される）
+  skills/          unity-cli-test-runner・unity-compile-check スキル本体（SKILL.md・スクリプト）
+  agents/          テスト実行専用サブエージェント定義
 unity/             Unity側UPMパッケージ（Editor拡張）
 ```
 

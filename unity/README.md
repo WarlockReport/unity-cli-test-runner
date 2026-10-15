@@ -36,5 +36,5 @@ https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity
 | `batch_test_status` | `run_tests_batch_playmode` の実行状況をポーリングする |
 | `batch_cancel_tests` | 実行中のPlayModeバッチテストをキャンセルする |
 
-対応するClaude Codeスキル（`skills/unity-cli-test-runner`）と組み合わせて使うことを想定しています。
+対応するClaude Codeスキル（`claude-plugin/skills/unity-cli-test-runner`）と組み合わせて使うことを想定しています。
 単体で `unity cmd` から直接呼び出すこともできます。
