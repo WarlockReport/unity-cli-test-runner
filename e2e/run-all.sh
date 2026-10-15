@@ -154,6 +154,19 @@ stage_unity_traps() {
   return 1
 }
 
+# 段階 7: PlayMode の非同期実行（ドメインリロードを越えたポーリング）の集計を照合する。
+# PlayMode は 1 回の実行に時間がかかるため、timeout とポーリング予算を広めに取る
+stage_playmode() {
+  if run_test_case "7-playmode-class" playmode "total=3 passed=2 failed=1 skipped=0" \
+    bash "${SCRIPTS}/run-playmode-test.sh" "Fixtures.PlayMode.PlayModeFixture" testName 300 300; then
+    expect_fail_line "7-playmode-class" "Fixtures.PlayMode.PlayModeFixture.Fail_Intentionally"
+  fi
+
+  run_test_case "7-playmode-batch" playmode "total=2 passed=2 failed=0 skipped=0" \
+    bash "${SCRIPTS}/run-tests-batch-playmode.sh" \
+    "Fixtures.PlayMode.PlayModeFixture.Pass_AfterOneFrame,Fixtures.PlayMode.SameNameFixture.Pass_Only" 300 300
+}
+
 report() {
   echo "----" >&2
   echo "E2E 集計: 一致 ${passed} 件 / 不一致 ${failed} 件（生の出力: ${OUT_DIR}）" >&2
@@ -170,6 +183,7 @@ main() {
   # --- 段階 3 以降 ---
   stage_editmode
   stage_unity_traps
+  stage_playmode
 
   report
   [ "$failed" -eq 0 ]
