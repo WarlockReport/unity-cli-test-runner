@@ -6,7 +6,7 @@ Accepted (2026-10-15)
 
 ## Context
 
-- `.claude-plugin/marketplace.json` の `"source": "./"` により、プラグインのインストール時にリポジトリ全体がプラグインキャッシュへ複製されていた。GitHub から 0.5.0 を入れたキャッシュの直下には、プラグインの実行に不要な `unity/`（UPM パッケージ）・`docs/`・`README.md`・`.gitignore` まで含まれていた。ローカルディレクトリのマーケットプレイスから入れた環境では、ignore 対象のローカル専用ファイルまで複製されていた（2026-10-15 確認）
+- `.claude-plugin/marketplace.json` の `"source": "./"` により、プラグインのインストール時にリポジトリ全体がプラグインキャッシュへ複製されていた。GitHub から 0.5.0 を入れたキャッシュの直下には、プラグインの実行に不要な `unity/`（UPM パッケージ）・`docs/`・`README.md`・`.gitignore` まで含まれていた。また、2026-08-25 にローカルディレクトリのマーケットプレイスから当時の Claude Code で入れた開発者の環境では、キャッシュに ignore 対象のローカル専用ファイルまで複製されていた（2026-10-15 にキャッシュの中身を確認）
 - 今後、開発・検証用の Unity プロジェクトと E2E 照合スクリプトをリポジトリに追加する予定であり、そのままではそれらもすべての利用者のキャッシュへ複製される
 
 ## Decision
@@ -33,4 +33,4 @@ Accepted (2026-10-15)
 - 移動後のコミットを同じブランチに push し、`claude plugin marketplace update` → `claude plugin update` を実行すると「updated from 0.5.0 to 0.6.0」となり、`source` の変更に自動で追従した。0.6.0 のキャッシュの直下は `.claude-plugin`・`agents`・`LICENSE`・`skills` だけだった（このほかに Claude Code 自身が置く `.in_use` がある）
 - `claude plugin details` で、スキル 2 つ（`unity-cli-test-runner`・`unity-compile-check`）とエージェント 1 つ（`unity-test-runner`）が従来と同じ名前で認識された
 - 0.6.0 のキャッシュ内の `skills/unity-compile-check/../unity-cli-test-runner/scripts/` を起点に、リポジトリ外を CWD にして、起動中の Editor に対して `check-editor-ready.sh`・`ensure-compile-clean.sh` を実行し、ともに exit 0 になった
-- ローカルディレクトリから追加したマーケットプレイスでは、相対パスの `source` のプラグインはキャッシュへ複製されずにその場で読み込まれる（公式ドキュメント）。そのため、キャッシュの中身の確認は GitHub 経由でのみ行った
+- 現行の公式ドキュメントによれば、ローカルディレクトリから追加したマーケットプレイスでは、相対パスの `source` のプラグインはキャッシュへ複製されずにその場で読み込まれる。Context に書いた 2026-08-25 の導入環境ではキャッシュへ複製されていたため、Claude Code の版によって挙動が異なる可能性がある（この経路での 0.6.0 への更新は未検証）。キャッシュの中身の確認は、利用者と同じ GitHub 経由の経路でのみ行った
