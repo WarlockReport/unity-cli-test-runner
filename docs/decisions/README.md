@@ -24,3 +24,4 @@
 | [0016](0016-pipeline-0.8-only.md) | `com.unity.pipeline` 0.8.0-exp.1 への一本化と `*_status` のネイティブJSON化への追従 | Accepted (2026-10-04) |
 | [0017](0017-skill-script-path-via-claude-skill-dir.md) | スキルのスクリプト参照を `${CLAUDE_SKILL_DIR}` 起点の絶対パス表記にする | Accepted (2026-10-04) |
 | [0018](0018-move-plugin-to-subdirectory.md) | Claude Code プラグイン本体を `claude-plugin/` サブディレクトリへ移す | Accepted (2026-10-15) |
+| [0019](0019-in-repo-test-project-and-e2e.md) | リポジトリ内に検証用 Unity プロジェクト（TestProject）と E2E 照合スクリプトを置く | Accepted (2026-10-15) |

@@ -48,7 +48,16 @@ claude-plugin/     Claude Codeプラグイン本体（インストール時に�
   skills/          unity-cli-test-runner・unity-compile-check スキル本体（SKILL.md・スクリプト）
   agents/          テスト実行専用サブエージェント定義
 unity/             Unity側UPMパッケージ（Editor拡張）
+TestProject/       開発・検証用のUnityプロジェクト（配布物には含まれない）
+e2e/               TestProjectに対するE2E照合スクリプト（配布物には含まれない）
 ```
+
+## 開発者向け: E2E の実行
+
+`TestProject/` を Unity 6000.3.25f1 で開いた状態で、次を実行すると、スキルのスクリプトを起動中の Editor に対して
+順に実行し、結果を期待値と照合します。詳細は [`TestProject/README.md`](TestProject/README.md) を参照してください。
+
+    bash e2e/run-all.sh
 
 ## 参考資料
 
