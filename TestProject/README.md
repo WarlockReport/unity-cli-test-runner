@@ -49,6 +49,3 @@ Claude Code で `unity-test-runner` エージェントに次のように依頼�
 | --- | --- |
 | 「`PrefixFixture` のテストを実行して」 | `Fixtures.EditMode.PrefixFixture.Pass_Only` の 1 件だけを実行する（`PrefixFixtureExtra` を巻き込まない） |
 | 「`SameNameFixture` を EditMode で実行して」 | `Fixtures.EditMode.SameNameFixture.Pass_Only` の 1 件だけを EditMode で実行する |
-
-2026-10-15 時点では、`PrefixFixture` のシナリオは期待どおりになりません（候補は 1 件に正しく絞り込むものの、
-実行時に短いクラス名を渡すため `PrefixFixtureExtra` も実行される）。経緯は `docs/decisions/` の該当 ADR を参照してください。

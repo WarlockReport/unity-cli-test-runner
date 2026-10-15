@@ -45,3 +45,7 @@ Accepted (2026-10-15)
 - `run-editmode-test.sh "Fixtures.EditMode.PrefixFixture" testName` で `PrefixFixture` と `PrefixFixtureExtra` の
   2 件が実行され、`run-tests-batch-editmode.sh "Fixtures.EditMode.PrefixFixture.Pass_Only"` では 1 件だけが実行された
 - `bash e2e/run-all.sh` が、上記 2 件の確認を加えた全 26 件の一致で exit 0
+- 修正後の SKILL.md を読み込んだ `unity-test-runner` エージェントで、TestProject の手動シナリオを再実行した。
+  「`PrefixFixture` を実行して」は `run-tests-batch-editmode.sh Fixtures.EditMode.PrefixFixture.Pass_Only` で
+  1 件だけが実行され（`PrefixFixtureExtra` を巻き込まない）、「`SameNameFixture` を EditMode で実行して」は
+  `run-tests-batch-editmode.sh Fixtures.EditMode.SameNameFixture.Pass_Only` で EditMode の 1 件だけが実行された
