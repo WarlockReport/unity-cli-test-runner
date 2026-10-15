@@ -167,12 +167,47 @@ stage_playmode() {
     "Fixtures.PlayMode.PlayModeFixture.Pass_AfterOneFrame,Fixtures.PlayMode.SameNameFixture.Pass_Only" 300 300
 }
 
+# 段階 8 で壊れた .cs を書き込む場所（TestProject/.gitignore で除外済み）
+INJECTED_DIR="${PROJECT_PATH}/Assets/E2EInjected"
+
+# 書き込んだコンパイルエラーの仕掛けを削除し、コンパイル状態を回復させる。
+# 途中で失敗・中断しても TestProject が壊れたまま残らないよう、EXIT の trap からも呼ぶ
+cleanup_injected() {
+  if [ -e "$INJECTED_DIR" ] || [ -e "${INJECTED_DIR}.meta" ]; then
+    rm -rf "$INJECTED_DIR" "${INJECTED_DIR}.meta"
+    echo "後片付け: コンパイルエラーの仕掛けを削除し、コンパイル状態を回復させます" >&2
+    if ! bash "${SCRIPTS}/ensure-compile-clean.sh" >/dev/null 2>&1; then
+      echo "警告: 後片付け後のコンパイル確認が exit 0 になりませんでした。TestProject の状態を確認してください。" >&2
+    fi
+  fi
+}
+
+# 段階 8: コンパイルエラーを検出できること（exit 1）と、取り除いた後に回復すること（exit 0）を照合する
+stage_compile_error() {
+  mkdir -p "$INJECTED_DIR"
+  cat >"${INJECTED_DIR}/E2EBrokenScript.cs" <<'CS'
+// e2e/run-all.sh が一時的に書き込むコンパイルエラーの仕掛け。照合後に削除される
+public class E2EBrokenScript
+{
+    private int broken = ;
+}
+CS
+  expect_exit "8-compile-error-detected" 1 bash "${SCRIPTS}/ensure-compile-clean.sh"
+  rm -rf "$INJECTED_DIR" "${INJECTED_DIR}.meta"
+  expect_exit "8-compile-error-recovered" 0 bash "${SCRIPTS}/ensure-compile-clean.sh"
+}
+
 report() {
   echo "----" >&2
   echo "E2E 集計: 一致 ${passed} 件 / 不一致 ${failed} 件（生の出力: ${OUT_DIR}）" >&2
 }
 
 main() {
+  # 中断（Ctrl+C・kill）されても EXIT の trap を通して後片付けが走るようにする
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap cleanup_injected EXIT
+
   mkdir -p "$OUT_DIR"
   rm -f "${OUT_DIR}"/*
 
@@ -184,6 +219,7 @@ main() {
   stage_editmode
   stage_unity_traps
   stage_playmode
+  stage_compile_error
 
   report
   [ "$failed" -eq 0 ]
