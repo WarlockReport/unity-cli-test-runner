@@ -139,6 +139,16 @@ stage_unity_traps() {
   run_test_case "6-trap-comma-testname" editmode "total=0 passed=0 failed=0 skipped=0" \
     bash "${SCRIPTS}/run-editmode-test.sh" "Fixtures.EditMode.AllPassFixture,Fixtures.EditMode.PrefixFixture" testName
 
+  # testName は FullName に対する大文字小文字を区別しない部分一致で照合される。そのためクラスの
+  # 完全名を渡しても、名前の先頭が同じ別クラス（PrefixFixtureExtra）まで実行される。
+  # この罠があるため、スキルは単一テスト・クラスの実行に完全一致のバッチ実行を使う
+  run_test_case "6-trap-testname-substring" editmode "total=2 passed=2 failed=0 skipped=0" \
+    bash "${SCRIPTS}/run-editmode-test.sh" "Fixtures.EditMode.PrefixFixture" testName
+
+  # バッチ実行は完全一致: 同じ相手に対して、指定した 1 件だけが実行される
+  run_test_case "6-batch-exact-match" editmode "total=1 passed=1 failed=0 skipped=0" \
+    bash "${SCRIPTS}/run-tests-batch-editmode.sh" "Fixtures.EditMode.PrefixFixture.Pass_Only"
+
   # list_tests の Mode でモードを裏取りする手順の前提: 同名クラスがモードごとに別々に列挙される
   local label="6-trap-list-tests-mode" em pm
   if ! run_saved "${label}-editmode" unity cmd list_tests --mode EditMode --json --timeout 30 \
