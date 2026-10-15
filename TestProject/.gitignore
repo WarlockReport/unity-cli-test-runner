@@ -1,0 +1,18 @@
+# Unity が生成する作業用ディレクトリ・IDE 用ファイル（コミットしない）
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Bb]uild/
+/[Bb]uilds/
+/.vs/
+/.idea/
+*.csproj
+*.sln
+*.slnx
+*.userprefs
+
+# e2e/run-all.sh が一時的に書き込むコンパイルエラーの仕掛け（照合後に削除される）
+/Assets/E2EInjected/
+/Assets/E2EInjected.meta
