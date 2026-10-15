@@ -68,12 +68,17 @@ run_test_case() {
   printf '%s\n' "$summary" >"${OUT_DIR}/${label}.summary"
   actual="$(printf '%s\n' "$summary" | grep -m1 '^SUMMARY ' \
     | grep -oE '(total|passed|failed|skipped)=[0-9]+' | tr '\n' ' ' | sed 's/ $//')"
-  if [ "$actual" = "$expected" ]; then
-    record_pass "${label} SUMMARY"
-    return 0
+  if [ "$actual" != "$expected" ]; then
+    record_fail "${label} SUMMARY" "期待=[${expected}] 実際=[${actual}]（${OUT_DIR}/${label}.summary を参照）"
+    return 1
   fi
-  record_fail "${label} SUMMARY" "期待=[${expected}] 実際=[${actual}]（${OUT_DIR}/${label}.summary を参照）"
-  return 1
+  # 件数が期待どおりでも、summary と個別の結果が食い違っている（MISMATCH 行がある）なら、
+  # 応答の形が変わった可能性があるため不一致として扱う
+  if printf '%s\n' "$summary" | grep -q '^MISMATCH '; then
+    record_fail "${label} SUMMARY" "件数は期待どおりだが MISMATCH が出ている（${OUT_DIR}/${label}.summary を参照）"
+    return 1
+  fi
+  record_pass "${label} SUMMARY"
 }
 
 # 直前の run_test_case（同じラベル）の集計結果に、指定したテストの FAIL 行があるかを照合する
