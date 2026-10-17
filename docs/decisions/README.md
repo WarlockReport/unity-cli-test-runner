@@ -28,3 +28,4 @@
 | [0020](0020-exact-fullname-execution-via-batch.md) | 単一テスト・クラスの実行を、完全一致のバッチ実行に切り替える | Accepted (2026-10-15) |
 | [0021](0021-stale-plugin-get-console-logs-report.md) | 「ensure-compile-clean.sh が get_console_logs を呼んで exit 2 で止まる」報告への対応 | Accepted (2026-10-15) |
 | [0022](0022-playmode-filter-clue-check-testname-only.md) | PlayMode 実行の filter 文字列の整合性チェックを `testName` 指定時だけに限る | Accepted (2026-10-17) |
+| [0023](0023-report-unity-cmd-failure-response.md) | `unity cmd` が一時的でない理由で失敗したとき、その応答を標準エラーに出す | Accepted (2026-10-17) |

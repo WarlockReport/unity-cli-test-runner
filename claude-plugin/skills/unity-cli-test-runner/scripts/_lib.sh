@@ -67,18 +67,21 @@ is_blocked_by_dialog() {
     [ "$(echo "$UNITY_CMD_OUT" | jq -r '.success // empty' 2>/dev/null || true)" = "true" ]
 }
 
-# `unity cmd` を1回実行し、結果を2つのグローバル変数へ入れる。
+# `unity cmd` を1回実行し、結果を3つのグローバル変数へ入れる。
 #   UNITY_CMD_OUT  … 標準出力のみ（jqでパースするのはこちら）
 #   UNITY_CMD_DIAG … 標準出力＋標準エラー（is_transient_failure に渡すのはこちら）
+#   UNITY_CMD_RC   … `unity cmd` 自体の終了コード（失敗時の診断出力に使う）
 # 一時的失敗のメッセージが標準出力・標準エラーのどちらに出るかはCLIの版・失敗種別に依存するため、
 # 判定には両方を結合したものを使い、呼び出し元がパースする値は標準出力だけに保つ。
 # 戻り値は `unity cmd` 自体の終了コード。
 UNITY_CMD_OUT=""
 UNITY_CMD_DIAG=""
+UNITY_CMD_RC=0
 run_unity_cmd_capture() {
   local err_file rc
   err_file="$(mktemp)"
   UNITY_CMD_OUT="$(unity cmd "$@" 2>"$err_file")" && rc=0 || rc=$?
+  UNITY_CMD_RC="$rc"
   UNITY_CMD_DIAG="${UNITY_CMD_OUT}
 $(cat "$err_file")"
   # 改修前の `raw="$(unity cmd ...)"` という形では標準エラーはそのまま端末へ素通りしていた。
@@ -87,6 +90,25 @@ $(cat "$err_file")"
   cat "$err_file" >&2
   rm -f "$err_file"
   return "$rc"
+}
+
+# `unity cmd` が一時的でない理由で失敗したとき、その応答を標準エラーへ出す。
+# `--json` を付けた呼び出しは失敗時も理由（`.errors[].message` 等）を標準出力のJSONに載せ、標準エラーは
+# 空のことがある。呼び出し元はその標準出力を変数に取り込んだまま捨てるため、ここで出さないと
+# 「失敗/タイムアウトしました」以外の手がかりが残らない（実機で、PlayModeのポーリング中に test_status が
+# 一度だけこの形で失敗し、理由を辿れなかった事例がある）。標準エラーの内容は run_unity_cmd_capture が
+# すでに素通りさせているので、ここでは扱わない。
+# 使い方: report_unity_cmd_failure <応答（標準出力）> [unity cmd の終了コード]
+report_unity_cmd_failure() {
+  local out="$1" rc="${2:-}"
+  local rc_note=""
+  [ -n "$rc" ] && rc_note="（unity cmd 終了コード ${rc}）"
+  if [ -z "$(printf '%s' "$out" | tr -d '[:space:]')" ]; then
+    echo "  unity cmd の応答は空でした${rc_note}。応答前のタイムアウト、またはCLI自体の失敗の可能性があります。" >&2
+    return 0
+  fi
+  echo "  unity cmd の応答${rc_note}（先頭40行）:" >&2
+  printf '%s\n' "$out" | head -n 40 | sed 's/^/    /' >&2
 }
 
 # ポーリングループを持たない単発コマンド用。一時的失敗の場合のみ

@@ -94,6 +94,7 @@ fi
 echo "[2/4] run_tests --mode PlayMode --filter ${FILTER} --filter_type ${FILTER_TYPE} --async_tests" >&2
 if ! RUN_TESTS_RAW="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" run_tests --mode PlayMode --filter "$FILTER" --filter_type "$FILTER_TYPE" --async_tests --json)"; then
   echo "run_tests のunity cmd呼び出し自体が失敗/タイムアウトしました（一時的なドメインリロード切断のリトライ予算超過を含む）。ハング・タイムアウト時の対応に従ってください。" >&2
+  report_unity_cmd_failure "$RUN_TESTS_RAW"
   exit 2
 fi
 
@@ -122,6 +123,7 @@ while [ "$elapsed" -lt "$POLL_BUDGET_SECONDS" ]; do
       continue
     fi
     echo "test_status が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
+    report_unity_cmd_failure "$UNITY_CMD_OUT" "$UNITY_CMD_RC"
     exit 2
   fi
 
