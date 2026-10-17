@@ -3,7 +3,7 @@
 # unity-cli-test-runner スキルの「PlayModeテスト実行」を1コマンドにまとめる。
 # test_status ベースライン取得 → run_tests --mode PlayMode --async_tests（コマンドレベル失敗も検知）→
 # test_status ポーリング → 完了確認 → ベースライン比較（同一filter連続実行時のstale検知）→
-# 結果に指定filterの手がかりが含まれるかの簡易整合性チェック（異なるfilterへの取り違え検知）、を
+# 結果に指定filterの手がかりが含まれるかの簡易整合性チェック（testName指定時のみ。異なるfilterへの取り違え検知）、を
 # 順に実行する。
 #
 # 使い方: run-playmode-test.sh <filter> <filter_type> [timeout(既定120)] [ポーリング予算秒数(既定90)]
@@ -26,7 +26,9 @@
 #          ベースラインと一致する応答を受け取った場合は即断せず、ポーリング予算内は完了とみなさず
 #          待ち続ける（async_tests発行直後のごく短いレース状態を許容するため）。予算を使い切っても
 #          ベースラインと一致したままの場合にのみこのパターンでexit 3となる
-#        - test_statusの結果に指定filterの手がかりが見当たらない（異なるfilterへの取り違えの疑い）
+#        - test_statusの結果に指定filterの手がかりが見当たらない（異なるfilterへの取り違えの疑い）。
+#          filter_type が testName のときだけ確認する（大文字小文字は区別しない）。assembly /
+#          category では結果に filter 文字列が現れないため確認せず、このパターンにはならない
 #      後の2パターン（stale の疑い）ではUnityコンソールログで InvalidOperationException（TestResultCollector.RunFinished）
 #      の有無を確認すること
 #
@@ -174,11 +176,23 @@ if [ -n "$BASELINE" ] && [ "$raw" = "$BASELINE" ]; then
   exit 3
 fi
 
-if ! echo "$raw" | grep -qF "$FILTER"; then
-  echo "test_statusの結果に指定filter「${FILTER}」の手がかりが見当たりません（異なるfilterへの取り違えの疑い）。" >&2
-  echo "Unityコンソールログで InvalidOperationException(TestResultCollector.RunFinished) の有無を確認してください。" >&2
-  extract_result_payload "$raw" || echo "$raw"
-  exit 3
+# filter文字列の手がかり確認は testName のときだけ行う。test_status の結果には filter 自体が
+# 含まれず、results[].FullName（名前空間.クラス.メソッド）しか手がかりが無い。assembly 指定では
+# アセンブリ名と名前空間が一致しないプロジェクトで必ず不一致になり、category 指定ではカテゴリ名が
+# 結果に一切出ないため、どちらも正常な結果を誤って exit 3 にしてしまう（別プロジェクトでの
+# アセンブリ全体実行で、件数・集計とも正しいのに exit 3 になる事例を確認した）。
+# 古い結果の取り違えは filter の種類によらず上のベースライン比較で検知できるため、ここを
+# 省いても失うのは「ベースライン取得後に別の実行が割り込んだ」ケースの検知だけである。
+# testName の照合は Unity 側が大文字小文字を区別しない部分一致なので、こちらも -i で揃える。
+if [ "$FILTER_TYPE" = "testName" ]; then
+  if ! echo "$raw" | grep -qiF "$FILTER"; then
+    echo "test_statusの結果に指定filter「${FILTER}」の手がかりが見当たりません（異なるfilterへの取り違えの疑い）。" >&2
+    echo "Unityコンソールログで InvalidOperationException(TestResultCollector.RunFinished) の有無を確認してください。" >&2
+    extract_result_payload "$raw" || echo "$raw"
+    exit 3
+  fi
+else
+  echo "filter_type=${FILTER_TYPE} は結果に filter 文字列が現れないため、手がかり確認を省略します（ベースライン比較のみ）。" >&2
 fi
 
 # 完了判定は grep フォールバックでも成立しうるため、中身を取り出せる保証は無い。取り出せないまま
