@@ -123,6 +123,7 @@ poll_recompile_status() {
       status=""
     else
       echo "recompile_status が失敗/タイムアウトしました。" >&2
+      report_unity_cmd_failure "$UNITY_CMD_OUT" "$UNITY_CMD_RC"
       return 2
     fi
 
@@ -186,6 +187,7 @@ poll_editor_status_settle() {
       return 3
     else
       echo "editor_status が失敗/タイムアウトしました。" >&2
+      report_unity_cmd_failure "$UNITY_CMD_OUT" "$UNITY_CMD_RC"
       return 2
     fi
 
@@ -292,11 +294,12 @@ report_compile_failure_and_exit() {
 }
 
 echo "[1/5] clear_console" >&2
-if ! run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" clear_console >/dev/null; then
+if ! clear_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" clear_console)"; then
   if is_blocked_by_dialog "$CLI_TIMEOUT"; then
     report_dialog_block_and_exit
   fi
   echo "clear_console が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
+  report_unity_cmd_failure "$clear_raw"
   exit 2
 fi
 
@@ -311,6 +314,7 @@ if ! recompile_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUD
     report_dialog_block_and_exit
   fi
   echo "recompile が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
+  report_unity_cmd_failure "$recompile_raw"
   exit 2
 fi
 
@@ -381,6 +385,7 @@ echo "[5/5] recompile_status を読み直してコンパイルエラーの有無
 # 自身だから（メインスレッド不要なのでダイアログでは塞がれず、失敗＝真のハングに寄る）。
 if ! status_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" recompile_status --json)"; then
   echo "recompile_status が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
+  report_unity_cmd_failure "$status_raw"
   exit 2
 fi
 

@@ -180,6 +180,11 @@ stage_playmode() {
   run_test_case "7-playmode-batch" playmode "total=2 passed=2 failed=0 skipped=0" \
     bash "${SCRIPTS}/run-tests-batch-playmode.sh" \
     "Fixtures.PlayMode.PlayModeFixture.Pass_AfterOneFrame,Fixtures.PlayMode.SameNameFixture.Pass_Only" 300 300
+
+  # アセンブリ全体の実行。アセンブリ名と名前空間が一致しない固定台を使い、結果の FullName に
+  # アセンブリ名が現れなくても整合性チェックで exit 3 にならないことを確かめる
+  run_test_case "7-playmode-assembly-ns-mismatch" playmode "total=1 passed=1 failed=0 skipped=0" \
+    bash "${SCRIPTS}/run-playmode-test.sh" "Fixtures.NamespaceMismatch.PlayMode" assembly 300 300
 }
 
 # 段階 8 で壊れた .cs を書き込む場所（TestProject/.gitignore で除外済み）

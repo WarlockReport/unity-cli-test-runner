@@ -36,6 +36,7 @@ ONESHOT_RETRY_BUDGET_SECONDS=15
 echo "[1/1] run_tests --mode EditMode --filter ${FILTER} --filter_type ${FILTER_TYPE}" >&2
 if ! raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" run_tests --mode EditMode --filter "$FILTER" --filter_type "$FILTER_TYPE" --json)"; then
   echo "run_tests のunity cmd呼び出し自体が失敗/タイムアウトしました（一時的なドメインリロード切断のリトライ予算超過を含む）。ハング・タイムアウト時の対応に従ってください。" >&2
+  report_unity_cmd_failure "$raw"
   exit 2
 fi
 
