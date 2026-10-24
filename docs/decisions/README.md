@@ -30,3 +30,4 @@
 | [0022](0022-playmode-filter-clue-check-testname-only.md) | PlayMode 実行の filter 文字列の整合性チェックを `testName` 指定時だけに限る | Accepted (2026-10-17) |
 | [0023](0023-report-unity-cmd-failure-response.md) | `unity cmd` が一時的でない理由で失敗したとき、その応答を標準エラーに出す | Accepted (2026-10-17) |
 | [0024](0024-version-aligned-with-pipeline.md) | プラグインと Unity 側パッケージの版番号を揃え、`com.unity.pipeline` の版に合わせる | Accepted (2026-10-24) |
+| [0025](0025-pipeline-0.9-only.md) | `com.unity.pipeline` 0.9.x への一本化、コマンドのグループ化への追従と対象 Unity の限定 | Accepted (2026-10-24) |

@@ -11,7 +11,7 @@ namespace TestRunnerCli
     /// <summary>複数の完全名(FullName)をまとめてEditModeで実行するPipelineコマンド。</summary>
     public static class TestRunnerBatchEditModeCommand
     {
-        [CliCommand("run_tests_batch_editmode", "複数の完全名(FullName)をカンマ区切りで受け取り、1回のExecuteでEditModeテストをまとめて実行する", MainThreadRequired = true, Tags = new[] { "tests" })]
+        [CliCommand("wr.testrunner", "run_tests_batch_editmode", "複数の完全名(FullName)をカンマ区切りで受け取り、1回のExecuteでEditModeテストをまとめて実行する", MainThreadRequired = true, Tags = new[] { "tests" })]
         public static async Task<TestExecutionResponse> RunTestsBatchEditMode(
             [CliArg("full_names", "実行する完全名(FullName)のカンマ区切りリスト", Required = true)] string fullNames,
             [CliArg("timeout", "テスト実行タイムアウト秒(既定300)")] int timeout = 300)

@@ -11,7 +11,16 @@ unity-cli-test-runner の開発・検証用の Unity プロジェクトです。
 ## 前提
 
 - Unity 6000.3.25f1（ほかの版で開くとアップグレードを求められます。版を上げる場合は `e2e/run-all.sh` で再検証してください）
-- `com.unity.pipeline` 0.8.0-exp.1
+- `com.unity.pipeline` 0.9.1-exp.1
+
+## このプロジェクトの扱い
+
+- コミットする Unity プロジェクトはこの 1 つだけです。Unity の版ごとのプロジェクトは持ちません
+- Unity の版は「対象とする LTS」に合わせます（現在 6000.3）。次の LTS を対象に切り替えるときは、その版でこのプロジェクトを
+  開いて変換し（新しい版へは自動で変換できます。古い版へは戻せません）、`e2e/run-all.sh` を通してから
+  `ProjectSettings/ProjectVersion.txt` ごとコミットします
+- `Packages/manifest.json` の `com.unity.pipeline` は、対応している最新の版にしてコミットします。対応しているほかの版
+  （たとえば 0.9.0-exp.1）でも動くことは、`bash e2e/run-all.sh --pipeline <版>` で確かめます
 
 ## 意図的に失敗・スキップするテストがあります
 
@@ -34,6 +43,7 @@ Test Runner で全件を実行すると、次のテストが失敗・スキッ�
 このプロジェクトを Unity で開いた状態で、リポジトリ内のどこからでも次を実行します。
 
     bash e2e/run-all.sh
+    bash e2e/run-all.sh --pipeline 0.9.0-exp.1   # com.unity.pipeline を一時的に差し替えて照合し、終了時に戻す
 
 終了コードは 0（全件一致）・1（不一致あり）・2（接続先が TestProject でない、または前提の段階で失敗）です。
 生の出力は `e2e/.out/` に残ります。別のプロジェクトの Editor が同時に起動していても、接続先は

@@ -4,7 +4,12 @@
 # 順に実行し、終了コードとテスト結果のサマリーを期待値と照合する E2E 照合スクリプト。
 # Pipeline の版上げやスクリプトの変更のあとに、実機での挙動が変わっていないかを 1 コマンドで確かめる。
 #
-# 使い方: bash e2e/run-all.sh   （リポジトリ内のどこから実行してもよい。引数なし）
+# 使い方: bash e2e/run-all.sh [--pipeline <版>]   （リポジトリ内のどこから実行してもよい）
+#
+#   --pipeline <版>  起動中の Editor の com.unity.pipeline を一時的に <版>（例: 0.9.0-exp.1）へ差し替えて照合し、
+#                    終了時（失敗・中断時も）に TestProject/Packages の manifest.json / packages-lock.json を
+#                    git の状態へ戻して再解決させる。旧版の Pipeline でも動くことを確かめるために使う。
+#                    戻す処理を 0.9 のコマンド名で行うため、0.9 未満の版には切り替えられない
 #
 # 前提: TestProject を Unity Editor で開いていること。`unity` と `jq` が PATH 上にあること。
 #
@@ -12,7 +17,8 @@
 #   0  全段階が期待値どおり
 #   1  1 つ以上の段階が期待値と食い違った（標準エラーの FAIL 行と e2e/.out/ を参照）
 #   2  接続先が TestProject の Editor でない・Editor が見つからない、または前提の段階
-#      （起動確認・コンパイル確定）が期待どおりでなかったため、照合を打ち切った
+#      （起動確認・コンパイル確定）が期待どおりでなかったため、照合を打ち切った。
+#      --pipeline の版が不正・切り替えに失敗した場合もこの終了コード
 #
 # 固定台（TestProject/Assets/Fixtures）のテストを増減したら、下の期待値も同時に直すこと。
 
@@ -30,6 +36,11 @@ export UNITY_PROJECT_PATH="${PROJECT_PATH}"
 
 passed=0
 failed=0
+
+# --pipeline で差し替える版と、差し替えを行ったかどうか（戻す必要があるか）
+PIPELINE_VERSION=""
+PIPELINE_SWITCHED=0
+PIPELINE_POLL_BUDGET_SECONDS=120
 
 record_pass() { passed=$((passed + 1)); echo "PASS  $1" >&2; }
 record_fail() { failed=$((failed + 1)); echo "FAIL  $1: $2" >&2; }
@@ -100,7 +111,7 @@ check_connection() {
   local actual
   # 接続先のプロジェクトの Editor が起動していないと、unity cmd は別の Editor へはつながず失敗する。
   # そのときのエラーは --json の応答として標準出力に出るため、失敗時も .out に残す
-  if ! run_saved "0-connection" unity cmd editor_status --json --timeout 30; then
+  if ! run_saved "0-connection" unity cmd editor status --json --timeout 30; then
     echo "TestProject の Editor に接続できません。TestProject を Unity で開いてから再実行してください（${OUT_DIR}/0-connection.out を参照）。" >&2
     return 1
   fi
@@ -149,11 +160,11 @@ stage_unity_traps() {
   run_test_case "6-batch-exact-match" editmode "total=1 passed=1 failed=0 skipped=0" \
     bash "${SCRIPTS}/run-tests-batch-editmode.sh" "Fixtures.EditMode.PrefixFixture.Pass_Only"
 
-  # list_tests の Mode でモードを裏取りする手順の前提: 同名クラスがモードごとに別々に列挙される
+  # test list の Mode でモードを裏取りする手順の前提: 同名クラスがモードごとに別々に列挙される
   local label="6-trap-list-tests-mode" em pm
-  if ! run_saved "${label}-editmode" unity cmd list_tests --mode EditMode --json --timeout 30 \
-    || ! run_saved "${label}-playmode" unity cmd list_tests --mode PlayMode --json --timeout 30; then
-    record_fail "$label" "list_tests の呼び出しに失敗（${OUT_DIR}/${label}-*.out を参照）"
+  if ! run_saved "${label}-editmode" unity cmd test list --mode EditMode --json --timeout 30 \
+    || ! run_saved "${label}-playmode" unity cmd test list --mode PlayMode --json --timeout 30; then
+    record_fail "$label" "test list の呼び出しに失敗（${OUT_DIR}/${label}-*.out を参照）"
     return 1
   fi
   em="$(jq -r '[.data.result.Tests[] | select(.FullName | test("\\.SameNameFixture\\.")) | "\(.FullName)@\(.Mode)"] | sort | join(",")' \
@@ -217,21 +228,106 @@ CS
   expect_exit "8-compile-error-recovered" 0 bash "${SCRIPTS}/ensure-compile-clean.sh"
 }
 
+# 0.9 未満の版かどうか（major.minor を数値で比べる）。0.9 以上なら 0 を返す
+is_pipeline_0_9_or_later() {
+  local major minor
+  major="$(echo "$1" | cut -d. -f1)"
+  minor="$(echo "$1" | cut -d. -f2)"
+  case "${major}${minor}" in *[!0-9]*|"") return 1 ;; esac
+  [ "$major" -gt 0 ] || [ "$minor" -ge 9 ]
+}
+
+# --pipeline 指定時に、起動中の Editor の com.unity.pipeline を差し替えてコンパイル完了まで待つ
+switch_pipeline() {
+  local version="$1"
+  echo "Pipeline を ${version} へ一時的に差し替えます" >&2
+  # ここから先は失敗しても manifest を戻す必要がある
+  PIPELINE_SWITCHED=1
+  if ! run_saved "pipeline-switch" unity cmd package add --identifier "com.unity.pipeline@${version}" \
+      --confirm true --wait true --json --timeout 300 \
+    || [ "$(jq -r '.data.result.status // empty' "${OUT_DIR}/pipeline-switch.out" 2>/dev/null)" != "completed" ]; then
+    echo "com.unity.pipeline@${version} への差し替えに失敗しました（${OUT_DIR}/pipeline-switch.out を参照）。" >&2
+    return 1
+  fi
+  if ! bash "${SCRIPTS}/ensure-compile-clean.sh" 300 >"${OUT_DIR}/pipeline-switch-compile.out" 2>"${OUT_DIR}/pipeline-switch-compile.err"; then
+    echo "差し替え後のコンパイルが確定しませんでした（${OUT_DIR}/pipeline-switch-compile.err を参照）。" >&2
+    return 1
+  fi
+}
+
+# 差し替えた Pipeline を git の状態へ戻し、再解決とコンパイル完了まで待つ
+restore_pipeline() {
+  [ "$PIPELINE_SWITCHED" = "1" ] || return 0
+  PIPELINE_SWITCHED=0
+  echo "後片付け: TestProject/Packages を git の状態へ戻し、パッケージを再解決します" >&2
+  git -C "$REPO_ROOT" checkout -- TestProject/Packages/manifest.json TestProject/Packages/packages-lock.json
+  # 照合の直後は Pipeline サーバーが再起動中で接続自体が失敗することがあるため、予算内で再試行する
+  local elapsed=0 status=""
+  until unity cmd package resolve --json --timeout 120 >/dev/null 2>&1; do
+    if [ "$elapsed" -ge "$PIPELINE_POLL_BUDGET_SECONDS" ]; then
+      echo "警告: package resolve に失敗しました。TestProject のパッケージ状態を確認してください。" >&2
+      return 0
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+  elapsed=0
+  while [ "$elapsed" -lt "$PIPELINE_POLL_BUDGET_SECONDS" ]; do
+    status="$(unity cmd package status --json --timeout 30 2>/dev/null | jq -r '.data.result.status // empty' 2>/dev/null || true)"
+    case "$status" in completed|failed) break ;; esac
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+  if [ "$status" != "completed" ]; then
+    echo "警告: パッケージの再解決が完了しませんでした（package status=${status:-取得できず}）。" >&2
+  fi
+  if ! bash "${SCRIPTS}/ensure-compile-clean.sh" 300 >/dev/null 2>&1; then
+    echo "警告: 再解決後のコンパイル確認が exit 0 になりませんでした。TestProject の状態を確認してください。" >&2
+  fi
+}
+
+on_exit() {
+  cleanup_injected
+  restore_pipeline
+}
+
 report() {
   echo "----" >&2
   echo "E2E 集計: 一致 ${passed} 件 / 不一致 ${failed} 件（生の出力: ${OUT_DIR}）" >&2
 }
 
 main() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --pipeline)
+        PIPELINE_VERSION="${2:-}"
+        if [ -z "$PIPELINE_VERSION" ]; then
+          echo "--pipeline には版を指定してください（例: --pipeline 0.9.0-exp.1）。" >&2
+          exit 2
+        fi
+        shift 2
+        ;;
+      *)
+        echo "使い方: bash e2e/run-all.sh [--pipeline <版>]" >&2
+        exit 2
+        ;;
+    esac
+  done
+  if [ -n "$PIPELINE_VERSION" ] && ! is_pipeline_0_9_or_later "$PIPELINE_VERSION"; then
+    echo "0.9 未満の版（${PIPELINE_VERSION}）には切り替えられません（戻す処理を 0.9 のコマンド名で行うため）。" >&2
+    exit 2
+  fi
+
   # 中断（Ctrl+C・kill）されても EXIT の trap を通して後片付けが走るようにする
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  trap cleanup_injected EXIT
+  trap on_exit EXIT
 
   mkdir -p "$OUT_DIR"
   rm -f "${OUT_DIR}"/*
 
   if ! check_connection; then report; exit 2; fi
+  if [ -n "$PIPELINE_VERSION" ] && ! switch_pipeline "$PIPELINE_VERSION"; then report; exit 2; fi
   if ! expect_exit "1-check-editor-ready" 0 bash "${SCRIPTS}/check-editor-ready.sh"; then report; exit 2; fi
   if ! expect_exit "2-ensure-compile-clean" 0 bash "${SCRIPTS}/ensure-compile-clean.sh"; then report; exit 2; fi
 

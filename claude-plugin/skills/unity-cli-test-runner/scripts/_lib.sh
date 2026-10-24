@@ -3,7 +3,7 @@
 # unity-cli-test-runner スキルの各スクリプトが共有するヘルパー関数。
 # 単体では実行せず、各スクリプトから `source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"` で読み込んで使う。
 #
-# 一時的失敗（リトライすれば解消しうる失敗）には2種類ある。
+# 一時的失敗（リトライすれば解消しうる失敗）には3種類ある。
 #
 # 1. Pipelineサーバーへの到達不能
 #    ドメインリロード中（コンパイル完了後の数秒間、およびPlayModeへの遷移直後）、Unity側の
@@ -11,6 +11,11 @@
 #    失敗することが実測で確認されている（リロードは通常1〜2秒で完了し、Pipelineサーバーは
 #    自動的に復帰する）:
 #      "No Unity Editor instances found with reachable Pipeline servers."
+#    com.unity.pipeline 0.9 では、接続先を UNITY_PROJECT_PATH で固定していると、同じ瞬断が
+#    "No Pipeline instance found for project: <パス>. Make sure Unity Editor is running ..."
+#    （unity cmd の終了コード 6）として現れることを実測で確認した（C# 変更直後の再コンパイル中）。
+#    また、com.unity.pipeline 自体の版を差し替えた直後（サーバーの再起動中）は、接続そのものが
+#    "Network error: An error occurred while sending the request." で失敗することも確認した。
 #
 # 2. サーバーがbusyを返す（com.unity.pipeline 0.6.0-exp.1 以降）
 #    0.6は、コマンドを実行できない状態を HTTP 503 と構造化エンベロープ
@@ -19,14 +24,23 @@
 #    "blocked_by_dialog"（モーダルダイアログがメインスレッドを塞いでいる）。
 #    本スキルのカスタムコマンドはすべて MainThreadRequired = true なのでどちらにも該当しうる。
 #
-# どちらも「起動中のエディタが本当に落ちている / 応答しない」場合と区別が付くのは継続時間だけ
+# 3. 同時実行上限の超過（com.unity.pipeline 0.9.0-exp.1 以降）
+#    実行待ちのコマンドが上限（100件）を超えると HTTP 429 と error="Too Many Queued Commands"
+#    （ジョブの場合は "Too Many Queued Jobs"）を返す。retryable は付かないが、先行するコマンドが
+#    捌ければ解消するのでリトライしてよい。
+#
+# 逆に「コマンドが見つからない」応答（Command Not Found / No command named ...）は一時的失敗ではない。
+# プラグイン・UPMパッケージ・com.unity.pipeline の版の組み合わせが揃っていないときに起き、
+# リトライしても解消しない（is_command_not_found で判定し、一時的失敗の判定より先に見る）。
+#
+# いずれも「起動中のエディタが本当に落ちている / 応答しない」場合と区別が付くのは継続時間だけ
 # なので、無条件にリトライし続けるのではなく、必ず呼び出し元の予算管理と組み合わせて使う。
 # 特に blocked_by_dialog は、ユーザーがダイアログを閉じるまで解消しない（＝予算を使い切って
 # 失敗するのが正しい振る舞いで、そのときエラー本文がダイアログの存在を伝える）。
 
 is_transient_pipeline_unreachable() {
   local raw="$1"
-  echo "$raw" | grep -qF "No Unity Editor instances found with reachable Pipeline servers"
+  echo "$raw" | grep -qE "No Unity Editor instances found with reachable Pipeline servers|No Pipeline instance found for project|Network error: An error occurred while sending the request"
 }
 
 # 0.6以降のbusy応答を検出する。`unity` CLIが503応答をどう整形するかは版によって異なりうるため、
@@ -35,7 +49,27 @@ is_transient_pipeline_unreachable() {
 # の形で error/errorDetails を本文に埋め込むことを実測で確認済み）。
 is_transient_busy() {
   local raw="$1"
-  echo "$raw" | grep -qE '"retryable"[[:space:]]*:[[:space:]]*true|"status"[[:space:]]*:[[:space:]]*"busy"|503 Service Unavailable|Server Busy'
+  echo "$raw" | grep -qE '"retryable"[[:space:]]*:[[:space:]]*true|"status"[[:space:]]*:[[:space:]]*"busy"|503 Service Unavailable|Server Busy|429 Too Many Requests|Too Many Queued (Commands|Jobs)'
+}
+
+# 「コマンドが見つからない」応答かどうか。0.9 は旧名を "No command named '<名前>' is available. ..."
+# で拒否し、0.9 未満のサーバーは 2 語のコマンドを "Command Not Found" で拒否する。
+is_command_not_found() {
+  local raw="$1"
+  echo "$raw" | grep -qE 'Command Not Found|No command named'
+}
+
+# run_unity_cmd_resilient の戻り値が 3（コマンドが見つからない）なら、版の組み合わせのずれとして
+# 診断を標準エラーに、生の応答を標準出力に出して exit 3 する（戻らない）。それ以外の戻り値では何もしない。
+# 使い方: exit_on_version_mismatch <戻り値> <応答（標準出力）>
+exit_on_version_mismatch() {
+  local rc="$1" raw="$2"
+  [ "$rc" = "3" ] || return 0
+  echo "unity cmd がコマンドを見つけられませんでした。プラグイン・UPMパッケージ（com.warlockreport.unity-cli-test-runner）・com.unity.pipeline の版の組み合わせが揃っていない可能性が高いです。" >&2
+  echo "  リトライでは解消しません。README の「版番号と対応する com.unity.pipeline」の表で、3つの版を揃えてもらってください。" >&2
+  report_unity_cmd_failure "$raw"
+  echo "$raw"
+  exit 3
 }
 
 # 一時的失敗（＝有限予算内でリトライしてよい失敗）かどうか。
@@ -54,17 +88,26 @@ is_busy_blocked_by_dialog() {
   echo "$raw" | grep -qE '"busyReason"[[:space:]]*:[[:space:]]*"blocked_by_dialog"'
 }
 
-# editor_status（MainThreadRequired）等のメインスレッド必須コマンドが失敗/タイムアウトした際、
+# editor status（MainThreadRequired）等のメインスレッド必須コマンドが失敗/タイムアウトした際、
 # モーダルダイアログによるメインスレッドブロックかどうかを判別する。
-# メインスレッド不要な recompile_status を1回叩き、応答すれば「Pipelineサーバー自体は生きて
+# メインスレッド不要な script recompile_status を1回叩き、応答すれば「Pipelineサーバー自体は生きて
 # いてメインスレッドだけが塞がれている」＝ダイアログブロックと判定する（check-editor-ready.sh
 # のステップ0で先に実測・確認済みだったロジックを共通化したもの）。
-# 戻り値: 0=ダイアログブロックと判定（recompile_statusが正常応答した）
-#         1=判定つかず（recompile_statusも失敗。真のハングの可能性が高い）
+# 戻り値: 0=ダイアログブロックと判定（script recompile_statusが正常応答した）
+#         1=判定つかず（script recompile_statusも失敗。真のハングの可能性が高い）
+# プローブ自体が「コマンドが見つからない」で失敗した場合は、ダイアログでもハングでもなく版の組み合わせの
+# ずれなので、exit_on_version_mismatch で終える（戻らない）。0.9 未満のサーバーでは、同名のフラットな
+# コマンドがある `console clear` 等が引数エラーで失敗し、ここで初めて版のずれが分かることがある。
 is_blocked_by_dialog() {
   local timeout="$1"
-  run_unity_cmd_capture recompile_status --json --timeout "$timeout" >/dev/null 2>&1 &&
+  if run_unity_cmd_capture script recompile_status --json --timeout "$timeout" >/dev/null 2>&1; then
     [ "$(echo "$UNITY_CMD_OUT" | jq -r '.success // empty' 2>/dev/null || true)" = "true" ]
+    return
+  fi
+  if is_command_not_found "$UNITY_CMD_DIAG"; then
+    exit_on_version_mismatch 3 "$UNITY_CMD_OUT"
+  fi
+  return 1
 }
 
 # `unity cmd` を1回実行し、結果を3つのグローバル変数へ入れる。
@@ -95,7 +138,7 @@ $(cat "$err_file")"
 # `unity cmd` が一時的でない理由で失敗したとき、その応答を標準エラーへ出す。
 # `--json` を付けた呼び出しは失敗時も理由（`.errors[].message` 等）を標準出力のJSONに載せ、標準エラーは
 # 空のことがある。呼び出し元はその標準出力を変数に取り込んだまま捨てるため、ここで出さないと
-# 「失敗/タイムアウトしました」以外の手がかりが残らない（実機で、PlayModeのポーリング中に test_status が
+# 「失敗/タイムアウトしました」以外の手がかりが残らない（実機で、PlayModeのポーリング中に test status が
 # 一度だけこの形で失敗し、理由を辿れなかった事例がある）。標準エラーの内容は run_unity_cmd_capture が
 # すでに素通りさせているので、ここでは扱わない。
 # 使い方: report_unity_cmd_failure <応答（標準出力）> [unity cmd の終了コード]
@@ -117,6 +160,7 @@ report_unity_cmd_failure() {
 #   0  成功
 #   1  一時的ではない失敗（生JSONは標準出力に出す。呼び出し元で内容を確認すること）
 #   2  一時的失敗のままリトライ予算を使い切った（真のハング、またはユーザー操作待ちのダイアログ）
+#   3  コマンドが見つからない（版の組み合わせのずれ。生JSONは標準出力に出す。exit_on_version_mismatch に渡す）
 #
 # 使い方: run_unity_cmd_resilient <timeout秒> <リトライ予算秒> <unity cmdへの引数...>
 run_unity_cmd_resilient() {
@@ -131,6 +175,11 @@ run_unity_cmd_resilient() {
     if run_unity_cmd_capture "$@" --timeout "$timeout"; then
       echo "$UNITY_CMD_OUT"
       return 0
+    fi
+
+    if is_command_not_found "$UNITY_CMD_DIAG"; then
+      echo "$UNITY_CMD_OUT"
+      return 3
     fi
 
     if ! is_transient_failure "$UNITY_CMD_DIAG"; then
@@ -149,8 +198,8 @@ run_unity_cmd_resilient() {
 }
 
 # `unity cmd ... --json` の生JSONから `.data.result` の中身を取り出し、整形したJSONとして標準出力へ出す。
-# com.unity.pipeline 0.8 以降、recompile_status / test_status などの `*_status` はネイティブなJSONを
-# 返すが、0.7 以前や旧版の本UPMパッケージ（batch_test_status）は同じ中身をJSON文字列として二重
+# com.unity.pipeline 0.8 以降、script recompile_status / test status などの `*_status` はネイティブなJSONを
+# 返すが、0.7 以前や旧版の本UPMパッケージ（wr.testrunner batch_test_status）は同じ中身をJSON文字列として二重
 # エンコードして返す。プラグインとUPMパッケージは別々に更新されるため、両方の形を受け付ける。
 # 戻り値: 0=取り出せた / 1=取り出せなかった（null・スカラー・パース不能・欠落。何も出力しない）
 extract_result_payload() {
