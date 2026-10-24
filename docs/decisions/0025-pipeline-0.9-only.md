@@ -62,6 +62,10 @@ Accepted (2026-10-24)
 ## Consequences
 
 - 2026-10-24 に TestProject（6000.3.25f1）で、Pipeline 0.9.1-exp.1 と 0.9.0-exp.1（`--pipeline`）の両方について E2E が 28 件すべて一致した
+- 2026-10-24 に 6000.3.25f1 + 0.9.1-exp.1 で、保存確認のモーダルダイアログを出したまま実行し、従来どおりの判定を確かめた。
+  `editor status` はサーバーの 60 秒打ち切りより先に CLI の 30 秒タイムアウト（`Pipeline command 'editor' timed out after 30000ms`、
+  `unity cmd` の終了コード 6）で切れ、busy（503）は返らない。`script recompile_status` は応答し続けるので、
+  `check-editor-ready.sh` は 1、`ensure-compile-clean.sh` は 4 でダイアログブロックとして報告した
 - 片方だけ更新した利用者は、「未起動」や「ハング」ではなく版の不一致として案内される（実測: Pipeline 0.8 + 新プラグインで `check-editor-ready.sh` /
   `ensure-compile-clean.sh` が 3、Pipeline 0.9 + UPM v0.8.0 で `run-tests-batch-editmode.sh` が 3）
 - 6000.0〜6000.2 のプロジェクトには本パッケージの 0.9.0 を導入できない
