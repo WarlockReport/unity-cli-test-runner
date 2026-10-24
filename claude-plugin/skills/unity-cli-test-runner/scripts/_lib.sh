@@ -14,6 +14,8 @@
 #    com.unity.pipeline 0.9 では、接続先を UNITY_PROJECT_PATH で固定していると、同じ瞬断が
 #    "No Pipeline instance found for project: <パス>. Make sure Unity Editor is running ..."
 #    （unity cmd の終了コード 6）として現れることを実測で確認した（C# 変更直後の再コンパイル中）。
+#    また、com.unity.pipeline 自体の版を差し替えた直後（サーバーの再起動中）は、接続そのものが
+#    "Network error: An error occurred while sending the request." で失敗することも確認した。
 #
 # 2. サーバーがbusyを返す（com.unity.pipeline 0.6.0-exp.1 以降）
 #    0.6は、コマンドを実行できない状態を HTTP 503 と構造化エンベロープ
@@ -38,7 +40,7 @@
 
 is_transient_pipeline_unreachable() {
   local raw="$1"
-  echo "$raw" | grep -qE "No Unity Editor instances found with reachable Pipeline servers|No Pipeline instance found for project"
+  echo "$raw" | grep -qE "No Unity Editor instances found with reachable Pipeline servers|No Pipeline instance found for project|Network error: An error occurred while sending the request"
 }
 
 # 0.6以降のbusy応答を検出する。`unity` CLIが503応答をどう整形するかは版によって異なりうるため、
