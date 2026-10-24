@@ -2,6 +2,23 @@
 
 All notable changes to this package are documented in this file.
 
+## [0.9.0] - 2026-10-24
+
+### Changed
+
+- **`com.unity.pipeline` 0.9.0-exp.1 以降が必須になった**（0.8.0-exp.1 以前は非対応。0.8 を使うプロジェクトは `#v0.8.0` に固定する）。
+  0.9 でコマンドが「グループ + 名前」に再編され、2 引数の `[CliCommand(name, description)]` が 0.9.0 で非推奨
+  （Obsolete 警告）になったため、0.9.0 / 0.9.1 の両方で警告の出ない 3 引数形式に書き換えた。
+- **コマンドを `wr.testrunner` グループへ移した**。呼び出し名が変わる（引数名と応答 JSON の形は変わらない）:
+  `run_tests_batch_editmode` → `wr.testrunner run_tests_batch_editmode`、`run_tests_batch_playmode` →
+  `wr.testrunner run_tests_batch_playmode`、`batch_test_status` → `wr.testrunner batch_test_status`、
+  `batch_cancel_tests` → `wr.testrunner batch_cancel_tests`。グループ名に `wr` を付けるのは、0.9 ではコマンド名が
+  重複すると後から登録された側が拒否され、本体のコマンドが残るため。
+- **Unity 6000.3 が必須になった**（`package.json` の `unity` を 6000.0 から 6000.3 へ）。対象とする Unity を LTS の版に限り、
+  検証している 6000.3 だけを対応と表示するため。6000.0〜6000.2 のプロジェクトには導入できなくなる。
+- `TestRunnerCli.asmdef` の `versionDefines` に `com.unity.pipeline` 0.9.0-exp.1 以上の条件を付けた。0.9 未満の Pipeline が
+  入っているプロジェクトでは本パッケージのコードがコンパイル対象から外れ、プロジェクトのコンパイルを壊さない。
+
 ## [0.8.0] - 2026-10-24
 
 ### Changed
