@@ -95,10 +95,19 @@ is_busy_blocked_by_dialog() {
 # のステップ0で先に実測・確認済みだったロジックを共通化したもの）。
 # 戻り値: 0=ダイアログブロックと判定（script recompile_statusが正常応答した）
 #         1=判定つかず（script recompile_statusも失敗。真のハングの可能性が高い）
+# プローブ自体が「コマンドが見つからない」で失敗した場合は、ダイアログでもハングでもなく版の組み合わせの
+# ずれなので、exit_on_version_mismatch で終える（戻らない）。0.9 未満のサーバーでは、同名のフラットな
+# コマンドがある `console clear` 等が引数エラーで失敗し、ここで初めて版のずれが分かることがある。
 is_blocked_by_dialog() {
   local timeout="$1"
-  run_unity_cmd_capture script recompile_status --json --timeout "$timeout" >/dev/null 2>&1 &&
+  if run_unity_cmd_capture script recompile_status --json --timeout "$timeout" >/dev/null 2>&1; then
     [ "$(echo "$UNITY_CMD_OUT" | jq -r '.success // empty' 2>/dev/null || true)" = "true" ]
+    return
+  fi
+  if is_command_not_found "$UNITY_CMD_DIAG"; then
+    exit_on_version_mismatch 3 "$UNITY_CMD_OUT"
+  fi
+  return 1
 }
 
 # `unity cmd` を1回実行し、結果を3つのグローバル変数へ入れる。

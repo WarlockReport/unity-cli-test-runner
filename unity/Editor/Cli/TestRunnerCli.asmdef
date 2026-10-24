@@ -10,7 +10,7 @@
     "autoReferenced": true,
     "defineConstraints": ["TESTRUNNER_CLI_AVAILABLE"],
     "versionDefines": [
-        { "name": "com.unity.pipeline", "expression": "", "define": "TESTRUNNER_CLI_AVAILABLE" }
+        { "name": "com.unity.pipeline", "expression": "0.9.0-exp.1", "define": "TESTRUNNER_CLI_AVAILABLE" }
     ],
     "noEngineReferences": false
 }
