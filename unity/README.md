@@ -27,6 +27,10 @@ Unity Editor の Package Manager → `+` → `Add package from git URL...` に�
 https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity
 ```
 
+特定の版に固定するには、末尾に `#<タグ>` を付けます（例: `...?path=/unity#v0.8.0`）。版の前 2 桁は対応する
+`com.unity.pipeline` の版を表します。Claude Code プラグインも同じタグに揃えてください。対応表と手順はリポジトリ直下の
+`README.md` を参照してください。
+
 ## 追加されるコマンド
 
 | コマンド | 用途 |

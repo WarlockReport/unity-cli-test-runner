@@ -2,6 +2,16 @@
 
 All notable changes to this package are documented in this file.
 
+## [0.8.0] - 2026-10-24
+
+### Changed
+
+- **版番号の付け方を変えた（コードの変更はない）**。0.4.0 と同じ内容のまま、版を 0.8.0 に上げた。
+  以後、版の前 2 桁（major.minor）は対応する `com.unity.pipeline` の版を、末尾（patch）は本リポジトリ側の
+  修正番号を表す。Claude Code プラグイン `wr-unity-cli-tools` も同じ版番号で揃え、リリースごとに共通の
+  git タグ `vX.Y.Z` を打つ。本版は `com.unity.pipeline` 0.8.x 向けで、git URL の末尾に `#v0.8.0` を付けると
+  この版に固定できる。
+
 ## [0.4.0] - 2026-10-04
 
 ### Changed
