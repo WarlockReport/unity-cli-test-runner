@@ -13,6 +13,19 @@
   0.6・0.5 を切った経緯は [ADR-0015](docs/decisions/0015-pipeline-0.7-only.md)・
   [ADR-0012](docs/decisions/0012-vendor-pipeline-internal-types.md)）
 
+## 版番号と対応する `com.unity.pipeline`
+
+Claude Code プラグインと Unity 側パッケージは同じ版番号で揃えており、リリースごとに共通の git タグ `vX.Y.Z` を打っています。
+版の前 2 桁（major.minor）は対応する `com.unity.pipeline` の版を、末尾（patch）はこのリポジトリ側の修正番号を表します。
+`com.unity.pipeline` には破壊的な変更が入ることがあるため、使っている版に合うタグに両方を固定しておくと、
+こちらが新しい版へ対応したあとも動作を維持できます（手順は [版を固定してインストールする](#版を固定してインストールする)）。
+
+| `com.unity.pipeline` | 使うタグ |
+| --- | --- |
+| 0.8.x | `v0.8.0` |
+
+プラグインと Unity 側パッケージは、必ず同じタグに揃えてください（両者は `unity cmd` のコマンド名・引数・応答の形で結合しています）。
+
 ## インストール
 
 ### 1. Claude Codeプラグイン
@@ -63,6 +76,36 @@ https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity
 ```
 
 詳細は [`unity/README.md`](unity/README.md) を参照。
+
+### 版を固定してインストールする
+
+上の手順はどちらも既定ブランチの最新を入れます。特定の版に固定するには、
+[対応表](#版番号と対応する-comunitypipeline) で選んだタグ（以下は `v0.8.0` の例）を両方に付けます。
+
+プラグインは、マーケットプレイスの登録時に `#<タグ>` を付けます。プラグイン本体はマーケットプレイスと同じリポジトリから
+取り出されるため、これでプラグインもそのタグの版に固定されます。
+
+```
+/plugin marketplace add WarlockReport/unity-cli-test-runner#v0.8.0
+/plugin install wr-unity-cli-tools
+```
+
+Unity 側パッケージは、git URL の末尾に `#<タグ>` を付けます（`Packages/manifest.json` に直接書いてもかまいません）。
+
+```
+https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity#v0.8.0
+```
+
+固定先のタグを変えるときは、マーケットプレイスは同じ名前で 2 つ登録できないため、一度削除してから新しいタグで登録し直します
+（削除するとプラグインもアンインストールされるので、登録後に `/plugin install` をやり直します）。
+
+```
+claude plugin marketplace remove wr-unity-cli-tools-dev
+claude plugin marketplace add WarlockReport/unity-cli-test-runner#<新しいタグ>
+claude plugin install wr-unity-cli-tools@wr-unity-cli-tools-dev
+```
+
+Unity 側パッケージは、git URL の `#<タグ>` を書き換えます。
 
 ## 構成
 
