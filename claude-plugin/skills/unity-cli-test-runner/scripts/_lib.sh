@@ -11,6 +11,9 @@
 #    失敗することが実測で確認されている（リロードは通常1〜2秒で完了し、Pipelineサーバーは
 #    自動的に復帰する）:
 #      "No Unity Editor instances found with reachable Pipeline servers."
+#    com.unity.pipeline 0.9 では、接続先を UNITY_PROJECT_PATH で固定していると、同じ瞬断が
+#    "No Pipeline instance found for project: <パス>. Make sure Unity Editor is running ..."
+#    （unity cmd の終了コード 6）として現れることを実測で確認した（C# 変更直後の再コンパイル中）。
 #
 # 2. サーバーがbusyを返す（com.unity.pipeline 0.6.0-exp.1 以降）
 #    0.6は、コマンドを実行できない状態を HTTP 503 と構造化エンベロープ
@@ -35,7 +38,7 @@
 
 is_transient_pipeline_unreachable() {
   local raw="$1"
-  echo "$raw" | grep -qF "No Unity Editor instances found with reachable Pipeline servers"
+  echo "$raw" | grep -qE "No Unity Editor instances found with reachable Pipeline servers|No Pipeline instance found for project"
 }
 
 # 0.6以降のbusy応答を検出する。`unity` CLIが503応答をどう整形するかは版によって異なりうるため、

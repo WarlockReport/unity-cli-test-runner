@@ -33,12 +33,15 @@ https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity
 
 ## 追加されるコマンド
 
+すべて `wr.testrunner` グループに登録されます（`unity cmd wr.testrunner <コマンド> ...` で呼ぶ。
+`unity cmd wr.testrunner` でグループのコマンド一覧を表示できます）。
+
 | コマンド | 用途 |
 | --- | --- |
-| `run_tests_batch_editmode` | 複数クラスにまたがる完全名(FullName)の集合をEditModeで一括実行する |
-| `run_tests_batch_playmode` | 同上をPlayModeで非同期実行する |
-| `batch_test_status` | `run_tests_batch_playmode` の実行状況をポーリングする |
-| `batch_cancel_tests` | 実行中のPlayModeバッチテストをキャンセルする |
+| `wr.testrunner run_tests_batch_editmode` | 複数クラスにまたがる完全名(FullName)の集合をEditModeで一括実行する |
+| `wr.testrunner run_tests_batch_playmode` | 同上をPlayModeで非同期実行する |
+| `wr.testrunner batch_test_status` | `wr.testrunner run_tests_batch_playmode` の実行状況をポーリングする |
+| `wr.testrunner batch_cancel_tests` | 実行中のPlayModeバッチテストをキャンセルする |
 
 対応するClaude Codeスキル（`claude-plugin/skills/unity-cli-test-runner`）と組み合わせて使うことを想定しています。
 単体で `unity cmd` から直接呼び出すこともできます。
