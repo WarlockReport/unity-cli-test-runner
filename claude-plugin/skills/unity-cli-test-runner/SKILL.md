@@ -71,8 +71,12 @@ ${CLAUDE_SKILL_DIR}/scripts/check-editor-ready.sh
 機能が入っているが（0.7.0-exp.1・0.8.0-exp.1 の `BasePipelineServer.cs` でも該当箇所に実質的な変更は無く、
 挙動も変わらない見込み）、CHANGELOGが明記する通り「recent enough trunk build」が前提であり、
 **Unity 6000.3.14f1 では有効になっていない**（実測: busy応答ではなく単に
-`Pipeline command 'editor status' timed out after 30000ms` でタイムアウトし、
+`Pipeline command 'editor_status' timed out after 30000ms` でタイムアウトし、
 `unity status` も `state:"ready"` としか返さない）。上記の判別はこの版でも効く。
+`com.unity.pipeline` 0.9 でもダイアログの追跡は Unity 6000.7 以降でしか働かず、6000.3 では挙動が変わらない
+（実測、2026-10-24、Unity 6000.3.25f1 + 0.9.1-exp.1: `editor status` は busy 応答ではなく
+`Pipeline command 'editor' timed out after 30000ms`（`unity cmd` の終了コード 6）でタイムアウトし、
+`script recompile_status` は応答し続ける）。
 
 ### 1. コンパイル状態の確定
 
@@ -385,6 +389,13 @@ JSON（`test status`由来。`status`/`duration`/`summary`/`results`を含む。
   当たるケースも、上記スクリプト経由であれば `run_unity_cmd_resilient`（有限予算の単発リトライ）
   で自動的に吸収される。ただし、これらのスクリプトを介さず `unity cmd` を直接叩いた
   際にこのメッセージに遭遇した場合は、「未接続」と即断せず数秒待って再試行すること
+- `com.unity.pipeline` 0.9 では、同じ瞬断が別の文言で現れることがある（実地検証済み、2026-10-24）。
+  `UNITY_PROJECT_PATH` で接続先を固定していると、再コンパイル中に
+  `No Pipeline instance found for project: <パス>. Make sure Unity Editor is running ...` で失敗する
+  （「Unity Editor を起動せよ」と読めるが、**未起動という意味ではない**）。`com.unity.pipeline` 自体の版を差し替えた直後は
+  `Network error: An error occurred while sending the request.` で接続そのものが失敗する。また 0.9 では、
+  実行待ちのコマンドが上限を超えると HTTP 429（`Too Many Queued Commands`）が返る。上記スクリプトはどれも一時的失敗として
+  リトライする。`unity cmd` を直接叩いてこれらに遭遇した場合も、「未起動」と即断せず数秒待って再試行すること
 - `com.unity.pipeline` 0.6.0-exp.1 以降は、同種の「今は実行できない」状態をサーバーが HTTP 503 と
   構造化エンベロープ（`error="Server Busy"` / `status="busy"` / `retryable=true` / `busyReason`）で
   返すことがある。`busyReason` は `"settling"`（エディタ起動直後の

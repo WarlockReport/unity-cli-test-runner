@@ -34,7 +34,7 @@
 #      また、unity cmd がコマンドを見つけられなかった場合（プラグイン・UPMパッケージ・com.unity.pipeline の
 #      版の組み合わせが揃っていない疑い。標準エラーに診断が出る。再試行せず版を揃えてもらう）もこの終了コードになる
 #
-# 注意: test status --json のレスポンス構造は実地検証済み（2026-08-11）。トップレベルは
+# 注意: test status（0.8 以前の名前は test_status）--json のレスポンス構造は実地検証済み（2026-08-11）。トップレベルは
 #   { success, command, data: { command, parameters, result, target }, errors, warnings }
 # の形。data.result は com.unity.pipeline 0.8 以降ネイティブなJSONオブジェクトで、0.7 以前は
 # JSON文字列として二重エンコードされていた（どちらの形も extract_result_payload が受け付ける）。
