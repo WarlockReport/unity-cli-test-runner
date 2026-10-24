@@ -54,16 +54,16 @@ is_busy_blocked_by_dialog() {
   echo "$raw" | grep -qE '"busyReason"[[:space:]]*:[[:space:]]*"blocked_by_dialog"'
 }
 
-# editor_status（MainThreadRequired）等のメインスレッド必須コマンドが失敗/タイムアウトした際、
+# editor status（MainThreadRequired）等のメインスレッド必須コマンドが失敗/タイムアウトした際、
 # モーダルダイアログによるメインスレッドブロックかどうかを判別する。
-# メインスレッド不要な recompile_status を1回叩き、応答すれば「Pipelineサーバー自体は生きて
+# メインスレッド不要な script recompile_status を1回叩き、応答すれば「Pipelineサーバー自体は生きて
 # いてメインスレッドだけが塞がれている」＝ダイアログブロックと判定する（check-editor-ready.sh
 # のステップ0で先に実測・確認済みだったロジックを共通化したもの）。
-# 戻り値: 0=ダイアログブロックと判定（recompile_statusが正常応答した）
-#         1=判定つかず（recompile_statusも失敗。真のハングの可能性が高い）
+# 戻り値: 0=ダイアログブロックと判定（script recompile_statusが正常応答した）
+#         1=判定つかず（script recompile_statusも失敗。真のハングの可能性が高い）
 is_blocked_by_dialog() {
   local timeout="$1"
-  run_unity_cmd_capture recompile_status --json --timeout "$timeout" >/dev/null 2>&1 &&
+  run_unity_cmd_capture script recompile_status --json --timeout "$timeout" >/dev/null 2>&1 &&
     [ "$(echo "$UNITY_CMD_OUT" | jq -r '.success // empty' 2>/dev/null || true)" = "true" ]
 }
 
@@ -95,7 +95,7 @@ $(cat "$err_file")"
 # `unity cmd` が一時的でない理由で失敗したとき、その応答を標準エラーへ出す。
 # `--json` を付けた呼び出しは失敗時も理由（`.errors[].message` 等）を標準出力のJSONに載せ、標準エラーは
 # 空のことがある。呼び出し元はその標準出力を変数に取り込んだまま捨てるため、ここで出さないと
-# 「失敗/タイムアウトしました」以外の手がかりが残らない（実機で、PlayModeのポーリング中に test_status が
+# 「失敗/タイムアウトしました」以外の手がかりが残らない（実機で、PlayModeのポーリング中に test status が
 # 一度だけこの形で失敗し、理由を辿れなかった事例がある）。標準エラーの内容は run_unity_cmd_capture が
 # すでに素通りさせているので、ここでは扱わない。
 # 使い方: report_unity_cmd_failure <応答（標準出力）> [unity cmd の終了コード]
@@ -149,8 +149,8 @@ run_unity_cmd_resilient() {
 }
 
 # `unity cmd ... --json` の生JSONから `.data.result` の中身を取り出し、整形したJSONとして標準出力へ出す。
-# com.unity.pipeline 0.8 以降、recompile_status / test_status などの `*_status` はネイティブなJSONを
-# 返すが、0.7 以前や旧版の本UPMパッケージ（batch_test_status）は同じ中身をJSON文字列として二重
+# com.unity.pipeline 0.8 以降、script recompile_status / test status などの `*_status` はネイティブなJSONを
+# 返すが、0.7 以前や旧版の本UPMパッケージ（wr.testrunner batch_test_status）は同じ中身をJSON文字列として二重
 # エンコードして返す。プラグインとUPMパッケージは別々に更新されるため、両方の形を受け付ける。
 # 戻り値: 0=取り出せた / 1=取り出せなかった（null・スカラー・パース不能・欠落。何も出力しない）
 extract_result_payload() {

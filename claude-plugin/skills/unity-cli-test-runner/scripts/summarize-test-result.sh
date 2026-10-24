@@ -14,7 +14,7 @@
 #   editmode … run-editmode-test.sh / run-tests-batch-editmode.sh の出力
 #              （`unity cmd` のエンベロープ。summary は .data.result.Summary で PascalCase）
 #   playmode … run-playmode-test.sh / run-tests-batch-playmode.sh の出力
-#              （test_status / batch_test_status の .data.result をデコード済みの中身。
+#              （test status / wr.testrunner batch_test_status の .data.result をデコード済みの中身。
 #                summary は .summary で小文字、results[] 内だけ PascalCase）
 #   キーの大文字小文字混在は実測済みの罠（SKILL.mdステップ6参照）。どちらの形でも読めるよう
 #   候補パスを順に試し、キーは小文字へ正規化してから読む。
