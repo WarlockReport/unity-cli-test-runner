@@ -26,7 +26,9 @@
 #      リトライ予算15秒以内で自動リトライ済みのため、ここに到達した場合は本当に未起動/未接続の
 #      可能性が高い）
 #   3  応答は得られたが、想定した形状(.data.result.status)でパースできなかった（防御的フォールバック。
-#      標準出力の生JSONを確認して手動判断する）
+#      標準出力の生JSONを確認して手動判断する）。
+#      また、unity cmd がコマンドを見つけられなかった場合（プラグイン・UPMパッケージ・com.unity.pipeline の
+#      版の組み合わせが揃っていない疑い。標準エラーに診断が出る。再試行せず版を揃えてもらう）もこの終了コードになる
 
 set -euo pipefail
 
@@ -42,11 +44,14 @@ ONESHOT_RETRY_BUDGET_SECONDS=15
 # CLI呼び出し自体の失敗を出力の中身で判定するため、終了コード無視で出力を取得する。
 # ドメインリロード中は一時的にPipelineサーバーが不通になる（_lib.sh参照）ため、
 # その間だけは「未起動」と即断せず有限のリトライ予算内でリトライする。
+# 標準エラーは従来どおり抑止する（失敗の理由は下で判別して伝える）。コマンドが見つからない
+# （戻り値 3）ときは「未起動」と取り違えないよう、版の組み合わせのずれとして報告して終える。
 if [ -n "$PROJECT_PATH" ]; then
-  raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" editor status --project-path "$PROJECT_PATH" --json 2>/dev/null || true)"
+  raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" editor status --project-path "$PROJECT_PATH" --json 2>/dev/null)" && rc=0 || rc=$?
 else
-  raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" editor status --json 2>/dev/null || true)"
+  raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" editor status --json 2>/dev/null)" && rc=0 || rc=$?
 fi
+exit_on_version_mismatch "$rc" "$raw"
 
 # 出力が完全に空なら、CLI呼び出し自体が失敗したか、応答前にタイムアウトした。
 # 後者はモーダルダイアログによるメインスレッドブロックでも起こるため、下の判別へ回せるよう

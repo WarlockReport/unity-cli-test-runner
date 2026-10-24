@@ -30,7 +30,9 @@
 #          filter_type が testName のときだけ確認する（大文字小文字は区別しない）。assembly /
 #          category では結果に filter 文字列が現れないため確認せず、このパターンにはならない
 #      後の2パターン（stale の疑い）ではUnityコンソールログで InvalidOperationException（TestResultCollector.RunFinished）
-#      の有無を確認すること
+#      の有無を確認すること。
+#      また、unity cmd がコマンドを見つけられなかった場合（プラグイン・UPMパッケージ・com.unity.pipeline の
+#      版の組み合わせが揃っていない疑い。標準エラーに診断が出る。再試行せず版を揃えてもらう）もこの終了コードになる
 #
 # 注意: test status --json のレスポンス構造は実地検証済み（2026-08-11）。トップレベルは
 #   { success, command, data: { command, parameters, result, target }, errors, warnings }
@@ -92,7 +94,9 @@ else
 fi
 
 echo "[2/4] test run --mode PlayMode --filter ${FILTER} --filter_type ${FILTER_TYPE} --async_tests" >&2
-if ! RUN_TESTS_RAW="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" test run --mode PlayMode --filter "$FILTER" --filter_type "$FILTER_TYPE" --async_tests --json)"; then
+RUN_TESTS_RAW="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" test run --mode PlayMode --filter "$FILTER" --filter_type "$FILTER_TYPE" --async_tests --json)" && rc=0 || rc=$?
+exit_on_version_mismatch "$rc" "$RUN_TESTS_RAW"
+if [ "$rc" -ne 0 ]; then
   echo "test run のunity cmd呼び出し自体が失敗/タイムアウトしました（一時的なドメインリロード切断のリトライ予算超過を含む）。ハング・タイムアウト時の対応に従ってください。" >&2
   report_unity_cmd_failure "$RUN_TESTS_RAW"
   exit 2

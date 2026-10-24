@@ -18,7 +18,9 @@
 #   2  ハング・タイムアウト（ポーリング予算超過、`unity cmd`呼び出し自体の失敗を含む）、または
 #      wr.testrunner run_tests_batch_playmode がUnity側で受理されなかった場合
 #   3  完了は検知したが結果がstaleと疑われる（ベースライン完全一致、またはfull_namesのいずれかの
-#      手がかりが結果に見当たらない）
+#      手がかりが結果に見当たらない）。
+#      また、unity cmd がコマンドを見つけられなかった場合（プラグイン・UPMパッケージ・com.unity.pipeline の
+#      版の組み合わせが揃っていない疑い。標準エラーに診断が出る。再試行せず版を揃えてもらう）もこの終了コードになる
 #
 # 注意: PlayMode突入直後はドメインリロードが発生し、その1〜2秒間 unity cmd が
 # "No Unity Editor instances found with reachable Pipeline servers." で失敗することが
@@ -67,7 +69,9 @@ else
 fi
 
 echo "[2/4] wr.testrunner run_tests_batch_playmode --full_names ${FULL_NAMES} --async_tests true" >&2
-if ! RUN_TESTS_RAW="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" wr.testrunner run_tests_batch_playmode --full_names "$FULL_NAMES" --async_tests true --json)"; then
+RUN_TESTS_RAW="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" wr.testrunner run_tests_batch_playmode --full_names "$FULL_NAMES" --async_tests true --json)" && rc=0 || rc=$?
+exit_on_version_mismatch "$rc" "$RUN_TESTS_RAW"
+if [ "$rc" -ne 0 ]; then
   echo "wr.testrunner run_tests_batch_playmode のunity cmd呼び出し自体が失敗/タイムアウトしました（一時的なドメインリロード切断のリトライ予算超過を含む）。ハング・タイムアウト時の対応に従ってください。" >&2
   report_unity_cmd_failure "$RUN_TESTS_RAW"
   exit 2

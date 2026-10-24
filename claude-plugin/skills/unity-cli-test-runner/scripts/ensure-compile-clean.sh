@@ -29,8 +29,10 @@
 #   3  script recompile_status から failed / compilationFailed を取り出せず、エラー有無を確実に
 #      判定できなかった。標準出力の生JSONを確認して手動判断する
 #      （console get の応答が想定外でも判定自体は script recompile_status で済んでいるため、
-#      その場合は exit 3 ではなく exit 1 になる）
-#   4  内部のunity cmd呼び出し（clear_console/recompile/editor_statusのいずれか）
+#      その場合は exit 3 ではなく exit 1 になる）。
+#      また、unity cmd がコマンドを見つけられなかった場合（プラグイン・UPMパッケージ・com.unity.pipeline の
+#      版の組み合わせが揃っていない疑い。標準エラーに診断が出る。再試行せず版を揃えてもらう）もこの終了コードになる
+#   4  内部のunity cmd呼び出し（console clear/script recompile/editor statusのいずれか）
 #      が失敗/タイムアウトしたが、メインスレッド不要のscript recompile_statusは正常応答した
 #      （モーダルダイアログによるメインスレッドブロックの可能性が高い。真のハングではない）。
 #      .unity/.prefabファイルをUnity上で開いた状態のまま外部から変更すると、外部変更確認
@@ -92,8 +94,10 @@ SETTLE_REQUIRED_COUNT=2
 # 誤判定しないよう、run_unity_cmd_resilient で一時的失敗のみ有限予算（15秒）リトライする
 # （盲目的な待機延長ではなく、他の単発コマンドと同じ既存の確認済みイディオム）。
 is_editor_ready_now() {
-  local raw
-  if ! raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" editor status --json)"; then
+  local raw rc
+  raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" editor status --json)" && rc=0 || rc=$?
+  exit_on_version_mismatch "$rc" "$raw"
+  if [ "$rc" -ne 0 ]; then
     return 1
   fi
   local compiling domain_reload
@@ -294,7 +298,9 @@ report_compile_failure_and_exit() {
 }
 
 echo "[1/5] console clear" >&2
-if ! clear_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" console clear)"; then
+clear_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" console clear)" && rc=0 || rc=$?
+exit_on_version_mismatch "$rc" "$clear_raw"
+if [ "$rc" -ne 0 ]; then
   if is_blocked_by_dialog "$CLI_TIMEOUT"; then
     report_dialog_block_and_exit
   fi
@@ -309,7 +315,9 @@ echo "[2/5] script recompile" >&2
 # （0.6 では同じ状況で up_to_date を返し、エラーの記録が消えていた）。この場合は
 # 変更が無くコンパイルも走らないため、ポーリングしても状態は変わらない。待つ意味が
 # 無いので、そのまま詳細取得へ飛ばす。
-if ! recompile_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" script recompile --json)"; then
+recompile_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" script recompile --json)" && rc=0 || rc=$?
+exit_on_version_mismatch "$rc" "$recompile_raw"
+if [ "$rc" -ne 0 ]; then
   if is_blocked_by_dialog "$CLI_TIMEOUT"; then
     report_dialog_block_and_exit
   fi
@@ -383,7 +391,9 @@ echo "[5/5] script recompile_status を読み直してコンパイルエラー�
 # 読み直すのが最も信頼できる。
 # ここでの失敗に is_blocked_by_dialog を挟まないのは、その判別の probe が script recompile_status
 # 自身だから（メインスレッド不要なのでダイアログでは塞がれず、失敗＝真のハングに寄る）。
-if ! status_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" script recompile_status --json)"; then
+status_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" script recompile_status --json)" && rc=0 || rc=$?
+exit_on_version_mismatch "$rc" "$status_raw"
+if [ "$rc" -ne 0 ]; then
   echo "script recompile_status が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
   report_unity_cmd_failure "$status_raw"
   exit 2
