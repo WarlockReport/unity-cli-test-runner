@@ -15,6 +15,9 @@
 # 終了コード:
 #   0  結果確定（PASS/FAILは問わない）。標準出力のJSON（wr.testrunner batch_test_status由来の中身オブジェクト。
 #      status/duration/summary/results を含む）を読み、通常の結果報告に進んでよい
+#   1  引数付きケースの FullName（括弧を含む名前。例: Ns.Class.Method(First,2)）が指定された。実行はしない。
+#      名前の中のカンマで区切りが割れるため。引数部分を外したメソッドの FullName を重複を除いて渡し直す
+#      （そのメソッドの全ケースが実行される）
 #   2  ハング・タイムアウト（ポーリング予算超過、`unity cmd`呼び出し自体の失敗を含む）、または
 #      wr.testrunner run_tests_batch_playmode がUnity側で受理されなかった場合
 #   3  完了は検知したが結果がstaleと疑われる（ベースライン完全一致、またはfull_namesのいずれかの
@@ -41,6 +44,7 @@ if [ "$#" -lt 1 ]; then
 fi
 
 FULL_NAMES="$1"
+exit_on_parameterized_case_names "$FULL_NAMES" "run-tests-batch-playmode.sh"
 CLI_TIMEOUT="${2:-120}"
 POLL_BUDGET_SECONDS="${3:-90}"
 POLL_INTERVAL_SECONDS=3

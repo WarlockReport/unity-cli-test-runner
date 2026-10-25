@@ -133,14 +133,26 @@ stage_editmode() {
     expect_fail_line "3-editmode-class-mixed" "Fixtures.EditMode.MixedResultFixture.Fail_Intentionally"
   fi
 
-  # AllPass 2 + MixedResult 5 + Prefix 1 + PrefixExtra 1 + SameName 1
-  run_test_case "4-editmode-assembly" editmode "total=10 passed=8 failed=1 skipped=1" \
+  # AllPass 2 + MixedResult 5 + Prefix 1 + PrefixExtra 1 + SameName 1 + Parameterized 4
+  run_test_case "4-editmode-assembly" editmode "total=14 passed=12 failed=1 skipped=1" \
     bash "${SCRIPTS}/run-editmode-test.sh" "Fixtures.EditMode" assembly
 
   # 複数クラスにまたがる個別の FullName を 1 回で実行できるか（Pass 2 + Fail 1）
   run_test_case "5-editmode-batch" editmode "total=3 passed=2 failed=1 skipped=0" \
     bash "${SCRIPTS}/run-tests-batch-editmode.sh" \
     "Fixtures.EditMode.AllPassFixture.Pass_First,Fixtures.EditMode.MixedResultFixture.Fail_Intentionally,Fixtures.EditMode.PrefixFixtureExtra.Pass_Only"
+
+  # 引数が 2 つある [TestCase] のメソッドを、他のテストと一緒にメソッドの FullName で 1 回で実行できるか
+  # （Parameterized 4 ケース + AllPass 1）
+  run_test_case "5-editmode-batch-parameterized" editmode "total=5 passed=5 failed=0 skipped=0" \
+    bash "${SCRIPTS}/run-tests-batch-editmode.sh" \
+    "Fixtures.EditMode.ParameterizedFixture.Multiplier_DependsOnPhase,Fixtures.EditMode.AllPassFixture.Pass_First"
+
+  # ケースの FullName（引数をカンマ区切りで含む）を渡すと、名前が割れてそのケースが静かに抜け落ちるため、
+  # スクリプトが実行前に終了コード 1 で止める
+  expect_exit "5-editmode-batch-reject-case-name" 1 \
+    bash "${SCRIPTS}/run-tests-batch-editmode.sh" \
+    "Fixtures.EditMode.ParameterizedFixture.Multiplier_DependsOnPhase(First,2),Fixtures.EditMode.AllPassFixture.Pass_First"
 }
 
 # 段階 6: スキルが前提にしている Unity 側の挙動が、今も変わっていないかを確かめる
@@ -191,6 +203,12 @@ stage_playmode() {
   run_test_case "7-playmode-batch" playmode "total=2 passed=2 failed=0 skipped=0" \
     bash "${SCRIPTS}/run-tests-batch-playmode.sh" \
     "Fixtures.PlayMode.PlayModeFixture.Pass_AfterOneFrame,Fixtures.PlayMode.SameNameFixture.Pass_Only" 300 300
+
+  # 引数付きのメソッドをメソッドの FullName で指定し、全ケースが実行され整合性チェックも通るか
+  # （Parameterized 2 ケース + SameName 1）
+  run_test_case "7-playmode-batch-parameterized" playmode "total=3 passed=3 failed=0 skipped=0" \
+    bash "${SCRIPTS}/run-tests-batch-playmode.sh" \
+    "Fixtures.PlayMode.ParameterizedFixture.Increment_AddsOne,Fixtures.PlayMode.SameNameFixture.Pass_Only" 300 300
 
   # アセンブリ全体の実行。アセンブリ名と名前空間が一致しない固定台を使い、結果の FullName に
   # アセンブリ名が現れなくても整合性チェックで exit 3 にならないことを確かめる

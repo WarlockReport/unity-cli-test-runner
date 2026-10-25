@@ -72,6 +72,25 @@ exit_on_version_mismatch() {
   exit 3
 }
 
+# カンマ区切りの FullName 一覧に、引数付きケースの FullName（`(` を含むもの）があれば、
+# 診断を標準エラーに出して exit 1 する（戻らない）。含まなければ何もしない。
+# NUnit は [TestCase] の FullName に引数をカンマ区切りで入れる（例: Ns.Class.Method(First,2)）ため、
+# そのまま渡すと名前の途中で割れ、どのテストにも一致しない断片になる。EditMode ではエラーにならず
+# そのケースだけが静かに実行されないため、実行前に止める。メソッドの FullName（引数部分を外した名前）を
+# 渡せば、そのメソッドの全ケースが実行される（実地検証済み、2026-10-25）。
+# 使い方: exit_on_parameterized_case_names <カンマ区切りFullName> <スクリプト名>
+exit_on_parameterized_case_names() {
+  local full_names="$1" script_name="$2"
+  case "$full_names" in
+    *"("*) ;;
+    *) return 0 ;;
+  esac
+  echo "${script_name}: 引数付きケースの FullName（括弧を含む名前）は指定できません。名前の中のカンマで区切りが割れ、そのケースが実行されないためです。" >&2
+  echo "  末尾の「(引数)」を外したメソッドの FullName（例: Ns.Class.Method(First,2) → Ns.Class.Method）を、重複を除いて渡してください。そのメソッドの全ケースが実行されます。" >&2
+  echo "  指定された値: ${full_names}" >&2
+  exit 1
+}
+
 # 一時的失敗（＝有限予算内でリトライしてよい失敗）かどうか。
 is_transient_failure() {
   local raw="$1"
