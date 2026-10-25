@@ -14,6 +14,9 @@
 #   0  wr.testrunner run_tests_batch_editmode のunity cmd呼び出しに成功。標準出力のJSON（Summary.Total/Passed/
 #      Failed、Results[].FullName/Status/Message/StackTrace を含む。SKILL.mdステップ6参照）を読み、
 #      通常の結果報告に進んでよい
+#   1  引数付きケースの FullName（括弧を含む名前。例: Ns.Class.Method(First,2)）が指定された。実行はしない。
+#      名前の中のカンマで区切りが割れるため。引数部分を外したメソッドの FullName を重複を除いて渡し直す
+#      （そのメソッドの全ケースが実行される）
 #   2  ハング・タイムアウト（一時的切断のリトライ予算超過を含む、`unity cmd`呼び出し自体の失敗）。
 #      スキルの「ハング・タイムアウト時の対応」に従う
 #   3  unity cmd がコマンドを見つけられなかった（プラグイン・UPMパッケージ・com.unity.pipeline の版の組み合わせが
@@ -31,6 +34,7 @@ if [ "$#" -lt 1 ]; then
 fi
 
 FULL_NAMES="$1"
+exit_on_parameterized_case_names "$FULL_NAMES" "run-tests-batch-editmode.sh"
 CLI_TIMEOUT="${2:-120}"
 ONESHOT_RETRY_BUDGET_SECONDS=15
 

@@ -2,6 +2,13 @@
 
 All notable changes to this package are documented in this file.
 
+## [0.9.1] - 2026-10-25
+
+### Changed
+
+- Unity 側のコードに変更は無い。プラグイン側の修正に合わせて版番号を揃えた（引数が 2 つ以上ある `[TestCase]` のテストを、
+  他のテストと一緒にバッチ実行で指定できなかった問題への対応。プラグインはケースの FullName ではなくメソッドの FullName を渡す）。
+
 ## [0.9.0] - 2026-10-24
 
 ### Changed
