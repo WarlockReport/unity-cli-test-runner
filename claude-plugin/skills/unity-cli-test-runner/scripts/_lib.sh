@@ -231,3 +231,112 @@ extract_result_payload() {
   [ -n "$payload" ] || return 1
   echo "$payload" | jq .
 }
+
+# カンマ区切りの値を、各要素の前後の空白を除き、空の要素を捨てて、カンマで連結し直す。
+# 使い方: normalize_csv <カンマ区切りの値>
+normalize_csv() {
+  printf '%s' "$1" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd ',' - || true
+}
+
+# run-tests-filtered-*.sh の名前付き引数を解析し、次のグローバル変数を設定する。
+#   SEL_ASSEMBLY / SEL_EXCLUDE / SEL_INCLUDE_CATEGORY / SEL_EXCLUDE_CATEGORY（カンマ区切りは normalize_csv 済み）
+#   SEL_TIMEOUT（既定300。主な用途がアセンブリ規模の実行のため）/ SEL_POLL_BUDGET（既定90。PlayMode のみ使う）
+# 未知のオプション・値の欠落は使い方の誤りとして exit 2、絞り込み条件が 1 つも無ければ exit 1、
+# 除く名前に引数付きケースの FullName（括弧を含む名前）があれば exit 1（いずれも戻らない）。
+# 使い方: parse_filtered_args <スクリプト名> <使い方の文字列> "$@"
+parse_filtered_args() {
+  local script_name="$1" usage="$2"
+  shift 2
+  SEL_ASSEMBLY=""
+  SEL_EXCLUDE=""
+  SEL_INCLUDE_CATEGORY=""
+  SEL_EXCLUDE_CATEGORY=""
+  SEL_TIMEOUT=300
+  SEL_POLL_BUDGET=90
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --assembly|--exclude|--include-category|--exclude-category|--timeout|--poll-budget)
+        if [ "$#" -lt 2 ]; then
+          echo "${script_name}: $1 に値がありません。" >&2
+          echo "使い方: ${usage}" >&2
+          exit 2
+        fi
+        case "$1" in
+          --assembly) SEL_ASSEMBLY="$(printf '%s' "$2" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')" ;;
+          --exclude) SEL_EXCLUDE="$(normalize_csv "$2")" ;;
+          --include-category) SEL_INCLUDE_CATEGORY="$(normalize_csv "$2")" ;;
+          --exclude-category) SEL_EXCLUDE_CATEGORY="$(normalize_csv "$2")" ;;
+          --timeout) SEL_TIMEOUT="$2" ;;
+          --poll-budget) SEL_POLL_BUDGET="$2" ;;
+        esac
+        shift 2
+        ;;
+      *)
+        echo "${script_name}: 未知の引数です: $1" >&2
+        echo "使い方: ${usage}" >&2
+        exit 2
+        ;;
+    esac
+  done
+
+  if [ -z "${SEL_ASSEMBLY}${SEL_EXCLUDE}${SEL_INCLUDE_CATEGORY}${SEL_EXCLUDE_CATEGORY}" ]; then
+    echo "${script_name}: 絞り込み条件がありません。--assembly / --exclude / --include-category / --exclude-category のいずれかを指定してください。" >&2
+    echo "  アセンブリの全件を流すだけなら run-editmode-test.sh / run-playmode-test.sh の assembly 指定を使ってください。" >&2
+    exit 1
+  fi
+
+  exit_on_parameterized_case_names "$SEL_EXCLUDE" "$script_name"
+}
+
+# parse_filtered_args で設定した絞り込み条件の名前が、test list に実在するかを確かめる。
+# 綴りを誤った名前で実行すると、除いたつもりのテストが黙って流れる（または含めたつもりで 0 件になる）ため、
+# 1 つでも見つからなければ実行せずに止める。照合の規則は Unity 側の照合に合わせる:
+#   アセンブリ … 完全一致、大文字小文字を区別しない
+#   除く名前   … 基準のアセンブリ内のテストの FullName と完全一致するか、名前の直後が「.」か「(」で続く
+#               （クラス・メソッド・名前空間の完全名。「(」は test list が引数付きケースを Method(1,2) の名前で返すため。
+#                境界の文字を必須にして、FooTest で FooTestExtra を見つけたことにしない）
+#   カテゴリ   … 基準のアセンブリ内のテストの Categories と完全一致（大文字小文字を区別する）
+# 見つからない名前を標準エラーに列挙して exit 1、test list の呼び出し自体の失敗は exit 2、版ずれは exit 3（いずれも戻らない）。
+# 使い方: exit_on_unknown_selection <EditMode|PlayMode> <timeout秒> <スクリプト名>
+exit_on_unknown_selection() {
+  local mode="$1" timeout="$2" script_name="$3" raw rc missing
+
+  echo "test list --mode ${mode} で絞り込み条件の名前が実在するかを確認" >&2
+  raw="$(run_unity_cmd_resilient "$timeout" 15 test list --mode "$mode" --json)" && rc=0 || rc=$?
+  exit_on_version_mismatch "$rc" "$raw"
+  if [ "$rc" -ne 0 ]; then
+    echo "${script_name}: test list の unity cmd 呼び出し自体が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
+    report_unity_cmd_failure "$raw"
+    exit 2
+  fi
+
+  missing="$(printf '%s' "$raw" | jq -r \
+    --arg assembly "$SEL_ASSEMBLY" \
+    --arg excludes "$SEL_EXCLUDE" \
+    --arg includeCats "$SEL_INCLUDE_CATEGORY" \
+    --arg excludeCats "$SEL_EXCLUDE_CATEGORY" '
+    def csv: if . == "" then [] else split(",") end;
+    (.data.result.Tests // []) as $all
+    | ($all | if $assembly == "" then . else map(select((.Assembly // "" | ascii_downcase) == ($assembly | ascii_downcase))) end) as $base
+    | (if $assembly != "" and ($base | length) == 0 then ["アセンブリ: " + $assembly] else [] end)
+      + [($excludes | csv)[] as $n
+          | select(($base | map(.FullName) | any(. == $n or startswith($n + ".") or startswith($n + "("))) | not)
+          | "除く名前: " + $n]
+      + [(($includeCats | csv) + ($excludeCats | csv))[] as $c
+          | select(($base | map(.Categories // []) | add // [] | index($c)) == null)
+          | "カテゴリ: " + $c]
+    | .[]
+  ' 2>/dev/null)" || {
+    echo "${script_name}: test list の応答を読めませんでした（想定外の形）。" >&2
+    report_unity_cmd_failure "$raw"
+    exit 3
+  }
+
+  if [ -n "$missing" ]; then
+    echo "${script_name}: 次の名前が test list（${mode}${SEL_ASSEMBLY:+、アセンブリ ${SEL_ASSEMBLY}}）に見つかりません。綴りを確かめてください。実行はしていません。" >&2
+    printf '%s\n' "$missing" | sed 's/^/  /' >&2
+    echo "  除く名前はクラスかメソッドの完全名（FullName）で、引数付きのケースはメソッドの完全名で指定します。カテゴリ名は大文字小文字を区別します。" >&2
+    exit 1
+  fi
+}

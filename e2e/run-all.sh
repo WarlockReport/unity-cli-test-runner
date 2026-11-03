@@ -104,6 +104,23 @@ expect_fail_line() {
   return 1
 }
 
+# 直前の run_test_case（同じラベル）の結果に、指定したテストが含まれ、別のテストが含まれないことを照合する。
+# EditMode の結果は .data.result.Results[]、PlayMode の結果は .results[] に FullName がある
+# 使い方: expect_names <ラベル> <含まれるべき FullName（空なら確かめない）> <含まれてはいけない FullName>
+expect_names() {
+  local label="$1" present="$2" absent="$3" names
+  names="$(jq -r '(.data.result.Results // .results // [])[].FullName' "${OUT_DIR}/${label}.out" 2>/dev/null)"
+  if [ -n "$present" ] && ! printf '%s\n' "$names" | grep -qxF "$present"; then
+    record_fail "${label} テスト名" "「${present}」が結果に無い（${OUT_DIR}/${label}.out を参照）"
+    return 1
+  fi
+  if printf '%s\n' "$names" | grep -qxF "$absent"; then
+    record_fail "${label} テスト名" "除いたはずの「${absent}」が結果にある（${OUT_DIR}/${label}.out を参照）"
+    return 1
+  fi
+  record_pass "${label} テスト名"
+}
+
 # 段階 0: 接続先が TestProject の Editor であることを確かめる。
 # 違う Editor に対して以降を実行すると、そのプロジェクトでテストやコンパイルが走るため、
 # 一致しなければ何も実行せずに打ち切る
@@ -133,8 +150,8 @@ stage_editmode() {
     expect_fail_line "3-editmode-class-mixed" "Fixtures.EditMode.MixedResultFixture.Fail_Intentionally"
   fi
 
-  # AllPass 2 + MixedResult 5 + Prefix 1 + PrefixExtra 1 + SameName 1 + Parameterized 4
-  run_test_case "4-editmode-assembly" editmode "total=14 passed=12 failed=1 skipped=1" \
+  # AllPass 2 + MixedResult 5 + Prefix 1 + PrefixExtra 1 + SameName 1 + Parameterized 4 + Categorized 2 + CategoryPrefix 1
+  run_test_case "4-editmode-assembly" editmode "total=17 passed=15 failed=1 skipped=1" \
     bash "${SCRIPTS}/run-editmode-test.sh" "Fixtures.EditMode" assembly
 
   # 複数クラスにまたがる個別の FullName を 1 回で実行できるか（Pass 2 + Fail 1）
@@ -214,6 +231,62 @@ stage_playmode() {
   # アセンブリ名が現れなくても整合性チェックで exit 3 にならないことを確かめる
   run_test_case "7-playmode-assembly-ns-mismatch" playmode "total=1 passed=1 failed=0 skipped=0" \
     bash "${SCRIPTS}/run-playmode-test.sh" "Fixtures.NamespaceMismatch.PlayMode" assembly 300 300
+}
+
+# 段階 9: アセンブリ・カテゴリ・除く完全名による絞り込み実行。除いたクラス・メソッド・カテゴリが実行されず、
+# 名前の先頭が同じ別クラス（PrefixFixtureExtra）・別カテゴリ（SlowView）が巻き込まれないことを、件数とテスト名で確かめる
+stage_filtered() {
+  local em="${SCRIPTS}/run-tests-filtered-editmode.sh" pm="${SCRIPTS}/run-tests-filtered-playmode.sh"
+
+  # クラスの完全名で除くと、そのクラスだけが除かれる（前方一致する PrefixFixtureExtra は残る）
+  run_test_case "9-filtered-exclude-class" editmode "total=16 passed=14 failed=1 skipped=1" \
+    bash "$em" --assembly Fixtures.EditMode --exclude Fixtures.EditMode.PrefixFixture \
+    && expect_names "9-filtered-exclude-class" "Fixtures.EditMode.PrefixFixtureExtra.Pass_Only" "Fixtures.EditMode.PrefixFixture.Pass_Only"
+
+  # メソッドの完全名で除くと、同じクラスの他のメソッドは残る
+  run_test_case "9-filtered-exclude-method" editmode "total=16 passed=14 failed=1 skipped=1" \
+    bash "$em" --assembly Fixtures.EditMode --exclude Fixtures.EditMode.MixedResultFixture.Pass_One \
+    && expect_names "9-filtered-exclude-method" "Fixtures.EditMode.MixedResultFixture.Pass_Two" "Fixtures.EditMode.MixedResultFixture.Pass_One"
+
+  # 引数付きメソッドはメソッドの完全名で除くと全ケース（4 件）が除かれる
+  run_test_case "9-filtered-exclude-parameterized" editmode "total=13 passed=11 failed=1 skipped=1" \
+    bash "$em" --assembly Fixtures.EditMode --exclude Fixtures.EditMode.ParameterizedFixture.Multiplier_DependsOnPhase
+
+  # クラスに付けたカテゴリで除くと配下が除かれ、前方一致する別カテゴリ（SlowView）は残る
+  run_test_case "9-filtered-exclude-category" editmode "total=15 passed=13 failed=1 skipped=1" \
+    bash "$em" --assembly Fixtures.EditMode --exclude-category Slow \
+    && expect_names "9-filtered-exclude-category" "Fixtures.EditMode.CategoryPrefixFixture.Pass_Only" "Fixtures.EditMode.CategorizedFixture.Pass_First"
+
+  # アセンブリを省略し、カテゴリだけで含める（前方一致する別カテゴリは含まない）
+  run_test_case "9-filtered-include-category" editmode "total=2 passed=2 failed=0 skipped=0" \
+    bash "$em" --include-category Slow \
+    && expect_names "9-filtered-include-category" "Fixtures.EditMode.CategorizedFixture.Pass_First" "Fixtures.EditMode.CategoryPrefixFixture.Pass_Only"
+
+  # アセンブリ + 除くカテゴリ 2 つ + 除くクラスの組み合わせ（17 - Slow 2 - ExpectedFailure 1 - Parameterized 4）
+  run_test_case "9-filtered-combined" editmode "total=10 passed=9 failed=0 skipped=1" \
+    bash "$em" --assembly Fixtures.EditMode --exclude-category Slow,ExpectedFailure --exclude Fixtures.EditMode.ParameterizedFixture
+
+  # 名前空間の完全名でも除ける（名前は実在するので止めず、何も残らないので 0 件）
+  run_test_case "9-filtered-exclude-namespace" editmode "total=0 passed=0 failed=0 skipped=0" \
+    bash "$em" --include-category Slow --exclude Fixtures.EditMode
+
+  # 綴りを誤った名前（境界の無い前方一致）・存在しないカテゴリ・引数付きケースの名前は実行せずに止める
+  expect_exit "9-filtered-not-found-name" 1 \
+    bash "$em" --assembly Fixtures.EditMode --exclude Fixtures.EditMode.PrefixFix
+  expect_exit "9-filtered-not-found-category" 1 \
+    bash "$em" --include-category Slo
+  expect_exit "9-filtered-reject-case-name" 1 \
+    bash "$em" --exclude "Fixtures.EditMode.ParameterizedFixture.Multiplier_DependsOnPhase(First,2)"
+
+  # PlayMode: アセンブリ 7 件から、カテゴリ Slow（1 件）と失敗するメソッド（1 件）を除く
+  run_test_case "9-filtered-playmode" playmode "total=5 passed=5 failed=0 skipped=0" \
+    bash "$pm" --assembly Fixtures.PlayMode --exclude-category Slow \
+    --exclude Fixtures.PlayMode.PlayModeFixture.Fail_Intentionally --timeout 300 --poll-budget 300 \
+    && expect_names "9-filtered-playmode" "Fixtures.PlayMode.PlayModeFixture.Pass_AfterOneFrame" "Fixtures.PlayMode.CategorizedPlayModeFixture.Pass_AfterOneFrame"
+
+  # PlayMode で何も残らない組み合わせでも、ハング扱いにならず 0 件の結果として返る
+  run_test_case "9-filtered-playmode-zero" playmode "total=0 passed=0 failed=0 skipped=0" \
+    bash "$pm" --include-category Slow --exclude Fixtures.PlayMode --timeout 300 --poll-budget 300
 }
 
 # 段階 8 で壊れた .cs を書き込む場所（TestProject/.gitignore で除外済み）
@@ -354,6 +427,7 @@ main() {
   stage_unity_traps
   stage_playmode
   stage_compile_error
+  stage_filtered
 
   report
   [ "$failed" -eq 0 ]

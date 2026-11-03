@@ -189,6 +189,15 @@ exit 2を受け取った時点で追加の直接確認を行う必要はない�
     対話や確認を挟まず、ステップ5でそのクラスの `FullName` の一覧をバッチスクリプトに渡す1回の呼び出しで
     実行する。これがテスト実行依頼で最も頻出する粒度であり、「クラスを実行して」という指示自体がその
     全メソッド実行の意図とみなせるため、ここで実行をためらわない
+  - **「アセンブリ（または Mode 全体）から一部を除いて流す」「カテゴリで絞って流す」依頼**（例: 「`Foo.Tests` を
+    `Ns.SlowViewTest` 抜きで」「`Slow` カテゴリ以外を」「`Smoke` カテゴリだけ」）: ステップ5で絞り込み実行スクリプト
+    （`run-tests-filtered-editmode.sh` / `run-tests-filtered-playmode.sh`）を使う。残るテストの `FullName` の一覧を
+    ここで組み立ててはならない（数百件になりうる一覧をコマンド行に載せない。絞り込みは Unity 側で 1 回の実行として行う）。
+    ここで行うのは、除く名前・カテゴリ・アセンブリが属する `Mode` を `test list` で確定することだけでよい
+    （名前の綴りの確認はスクリプトが実行前に行い、見つからなければ実行せずに終了コード 1 で止まる）。
+    除く名前はクラスかメソッドの `FullName`（名前空間の `FullName` も可）で渡し、引数付きのケースはメソッドの
+    `FullName` で渡す（そのメソッドの全ケースが除かれる）。遅いクラスのうち一部だけを流したい場合は、流したい
+    クラスを除く名前に入れなければよく、1 回の呼び出しで表せる。1 回の呼び出しで扱う `Mode` は 1 つ
   - **上記以外で対象を一意に絞れない複数件**（複数クラスにまたがる、または曖昧な自然言語で
     どのクラス/テストを指すか確定できない）: 候補一覧をユーザーに提示して指定を仰ぐ。
     自己判断で全件ループ実行はしない
@@ -201,6 +210,7 @@ exit 2を受け取った時点で追加の直接確認を行う必要はない�
 | --- | --- |
 | 単一テスト／単一クラス／複数クラスにまたがる個別FullNameの集合 | ステップ2で得た `FullName` の一覧を `scripts/run-tests-batch-editmode.sh`（EditMode）または `scripts/run-tests-batch-playmode.sh`（PlayMode）に渡す |
 | 単一アセンブリ全体（名前を部分文字列として含む別アセンブリが無い場合） | `scripts/run-editmode-test.sh <アセンブリ名> assembly`（EditMode）または `scripts/run-playmode-test.sh <アセンブリ名> assembly`（PlayMode） |
+| アセンブリ／Mode 全体から、除く名前・カテゴリで絞り込んだ集合 | `scripts/run-tests-filtered-editmode.sh`（EditMode）または `scripts/run-tests-filtered-playmode.sh`（PlayMode）に名前付き引数で渡す |
 
 同一呼び出し内で複数グループが混在してもよい（例: EditModeの単一クラス実行1件 + PlayModeの
 複数クラス横断バッチ1件）。ステップ5で各グループを順に実行する。
@@ -265,6 +275,40 @@ ${CLAUDE_SKILL_DIR}/scripts/run-playmode-test.sh <アセンブリ名> assembly [
 JSON（`test status`由来。`status`/`duration`/`summary`/`results`を含む。EditModeの`test run`直接
 呼び出しとはキーの大文字小文字が異なる点に注意。詳細はステップ6参照）をステップ6の結果確認に使う。
 
+**除く名前・カテゴリで絞り込む場合**: アセンブリ・含めるカテゴリ・除くカテゴリ・除く名前を組み合わせて、
+1 回の呼び出しで実行する。名前・カテゴリ・アセンブリはすべて完全一致で照合され、名前の先頭が同じ別クラス・
+別メソッド・別カテゴリ（`Slow` に対する `SlowView` 等）を巻き込まない。
+
+```
+OUT="$(mktemp -t unity-test)"
+# EditMode（直接 unity cmd wr.testrunner run_tests_filtered_editmode を呼ばない — 「禁止事項」参照）
+${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-editmode.sh [--assembly <アセンブリ名>] [--exclude <カンマ区切りFullName>] [--include-category <カンマ区切り>] [--exclude-category <カンマ区切り>] [--timeout <秒>] > "$OUT"
+# PlayMode（直接 unity cmd wr.testrunner run_tests_filtered_playmode を呼ばない — 「禁止事項」参照）
+${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセンブリ名>] [--exclude <カンマ区切りFullName>] [--include-category <カンマ区切り>] [--exclude-category <カンマ区切り>] [--timeout <秒>] [--poll-budget <秒>] > "$OUT"
+```
+
+| 引数 | 意味 |
+| --- | --- |
+| `--assembly` | 基準のアセンブリ（完全一致、大文字小文字は区別しない）。省略時はその Mode の全アセンブリ |
+| `--exclude` | 除く `FullName`。クラスならクラス全体、メソッドならそのメソッド（引数付きは全ケース）、名前空間ならその配下 |
+| `--include-category` | 含めるカテゴリ。いずれかに当たれば含める（大文字小文字を区別する）。クラスに付けたカテゴリは配下のメソッドにも効く |
+| `--exclude-category` | 除くカテゴリ。いずれかに当たれば除く（大文字小文字を区別する） |
+
+`--timeout` の既定は 300 秒（アセンブリ規模の実行に合わせている）。PlayMode の `--poll-budget`（既定90秒）は、
+アセンブリ規模なら実行時間に合わせて伸ばす。
+
+例: 「`Foo.Tests` から `Slow` カテゴリと `Ns.BarTest` を除く」は
+`--assembly Foo.Tests --exclude-category Slow --exclude Ns.BarTest`。「`Slow` カテゴリのうち `Ns.SlowA` だけ流す」は
+`--include-category Slow --exclude Ns.SlowB,Ns.SlowC`。アセンブリの全件を流すだけなら、このスクリプトではなく
+上の `assembly` 指定を使う。
+
+| 終了コード | 意味 | 対応 |
+| --- | --- | --- |
+| 0 | 結果確定（PASS/FAIL は問わない）。0 件だった場合も 0（標準エラーに「0 件でした」と出る） | ステップ6へ。0 件なら、含める条件と除く条件の組み合わせで何も残らなかったことをそのまま報告する |
+| 1 | 実行していない。絞り込み条件が無い、除く名前に引数付きケースの `FullName`（括弧を含む名前）がある、または指定した名前（アセンブリ・除く名前・カテゴリ）が `test list` に見つからない（標準エラーに列挙される） | 推測で名前を直して再実行しない。見つからない名前をそのまま報告し、正しい名前を確認する（引数付きケースはメソッドの `FullName` に置き換えてよい） |
+| 2 | 使い方の誤り（未知の引数・値の欠落）、ハング・タイムアウト、または Unity 側で受理されなかった | 使い方の誤りなら引数を直す。それ以外は「ハング・タイムアウト時の対応」に従う |
+| 3 | 版の組み合わせのずれ（コマンドが見つからない、PlayMode の起動応答に `RequestId` が無い）、`test list` の応答が想定外の形、または PlayMode の結果が別の実行のもの（完了ステータスの `requestId` が起動応答と一致しない） | 再試行しない。版ずれなら README の表で版を揃えるよう伝える。stale の疑いなら標準出力の JSON を確認して報告する |
+
 - `run-editmode-test.sh` / `run-playmode-test.sh` の第2引数に `testName` を使わない（部分一致で
   別クラス・別メソッドを巻き込む。「既知の罠」参照）
 - `--timeout` の目安: EditMode の単一〜少数テストは `120`、アセンブリ全体の実行は `300` を起点に
@@ -284,8 +328,9 @@ JSON（`test status`由来。`status`/`duration`/`summary`/`results`を含む。
 
 複数グループを実行した場合、このステップは全グループの実行が完了してから行う。
 
-`run-editmode-test.sh`/`run-tests-batch-editmode.sh`（EditMode）または `run-playmode-test.sh`/
-`run-tests-batch-playmode.sh`（PlayMode）の出力を確認する。
+`run-editmode-test.sh`/`run-tests-batch-editmode.sh`/`run-tests-filtered-editmode.sh`（EditMode）または
+`run-playmode-test.sh`/`run-tests-batch-playmode.sh`/`run-tests-filtered-playmode.sh`（PlayMode）の出力を確認する
+（絞り込み実行の出力の形は、それぞれ同じ Mode のバッチ実行と同じ）。
 
 - EditModeの小規模実行はレスポンスに結果が同期的に含まれる（実地確認済み）。キーは
   `Summary.Total/Passed/Failed`、`Results[].FullName/Status/Message/StackTrace`（PascalCase）
@@ -357,7 +402,7 @@ JSON（`test status`由来。`status`/`duration`/`summary`/`results`を含む。
   (3) その照会すら応答しない（接続そのものが失われたと疑われる）場合に限り `unity cmd test cancel` を
   **1回だけ**試みる。それ以上粘らない
 
-  **バッチコマンド（`wr.testrunner run_tests_batch_playmode`）実行中のハングには `test cancel` ではなく
+  **バッチコマンド（`wr.testrunner run_tests_batch_playmode` / `wr.testrunner run_tests_filtered_playmode`）実行中のハングには `test cancel` ではなく
   `wr.testrunner batch_cancel_tests` を使う**。パッケージ本体の`test cancel`はバッチ実行の内部状態を追跡して
   いないため、バッチ実行を止められない。
 - **原因解消後の実行は「再試行」ではない**: ユーザーがモーダルを閉じた、コンパイルエラーを直した等、
@@ -392,14 +437,25 @@ JSON（`test status`由来。`status`/`duration`/`summary`/`results`を含む。
   実行されないまま他のテストの結果が返る（実地検証済み、2026-10-25）。これを防ぐため、バッチスクリプトは
   括弧を含む名前を受け取ると実行せずに終了コード 1 で終わる。メソッドの `FullName`（`Ns.Class.Method`）を
   渡せば、そのメソッドの全ケースが完全一致で実行される（ステップ2参照）
-- `--filter_type category` は未検証（検証環境のテストは現状すべて `Categories:["Uncategorized"]`）。
-  使う場合は事前に実地確認すること
+- `--filter_type category` は、カテゴリ名の完全一致（大文字小文字を区別しない）で照合され、**含めるカテゴリを
+  1 つしか指定できない**（除く指定・複数指定・アセンブリとの組み合わせはできない）（実地検証済み、2026-11-03）。
+  カテゴリで絞るときは、含める・除くを複数組み合わせられ、アセンブリとも組み合わせられる絞り込み実行スクリプト
+  （`run-tests-filtered-editmode.sh` / `run-tests-filtered-playmode.sh`）を使う
+- `test list` の `Categories` は、カテゴリの無いテストでは `["Uncategorized"]`、クラスに付けたカテゴリは
+  配下の各メソッドの `Categories` に現れる（実地検証済み、2026-11-03）
+- 絞り込み実行スクリプトの照合（実地検証済み、2026-11-03）: カテゴリは**大文字小文字を区別する**完全一致
+  （`Slow` で `SlowView` も `slow` も当たらない。`--filter_type category` と区別の有無が異なる点に注意）。
+  アセンブリは大文字小文字を区別しない完全一致（`--filter_type assembly` と違い、名前を部分文字列として含む
+  別アセンブリを巻き込まない）。除く名前はクラス・メソッド・名前空間の `FullName` の完全一致で、そのノードの
+  配下がすべて除かれる。スクリプトは実行前に `test list` で名前の実在を確かめるが、そのとき除く名前は
+  「`FullName` と完全一致するか、名前の直後が `.` か `(` で続くテストがある」ものを実在とみなす
 - コンパイル完了直後・PlayMode突入直後のドメインリロード中（通常1〜2秒）、`unity cmd` が
   `No Unity Editor instances found with reachable Pipeline servers.` で失敗することがある
   （実地検証済み、2026-08-21）。これは**エディタが未起動という意味ではない**——ドメインリロードで
   Pipelineサーバーが一時的に落ちているだけで、リロード完了とともに自動的に復帰する。
   `ensure-compile-clean.sh`/`run-playmode-test.sh`/`run-tests-batch-playmode.sh`/
-  `run-editmode-test.sh`/`run-tests-batch-editmode.sh`/`check-editor-ready.sh` は内部でこれを
+  `run-editmode-test.sh`/`run-tests-batch-editmode.sh`/`run-tests-filtered-editmode.sh`/
+  `run-tests-filtered-playmode.sh`/`check-editor-ready.sh` は内部でこれを
   一時的失敗として扱いポーリング・リトライを続ける（`scripts/_lib.sh` の
   `is_transient_failure`）ため、スキル利用者が意識する必要は通常ない。テスト起動
   呼び出し自体（`test run`/`wr.testrunner run_tests_batch_editmode`/`wr.testrunner run_tests_batch_playmode`）がこの瞬断に
@@ -490,6 +546,14 @@ JSON（`test status`由来。`status`/`duration`/`summary`/`results`を含む。
   --mode PlayMode` を直接（スクリプトを介さず）呼ばない
 - バッチのPlayModeテスト実行は必ず `scripts/run-tests-batch-playmode.sh` 経由で行う。`unity cmd
   wr.testrunner run_tests_batch_playmode` を直接（スクリプトを介さず）呼ばない
+- 除く名前・カテゴリによる絞り込み実行は必ず `scripts/run-tests-filtered-editmode.sh` /
+  `scripts/run-tests-filtered-playmode.sh` 経由で行う。`unity cmd wr.testrunner run_tests_filtered_editmode` /
+  `run_tests_filtered_playmode` を直接（スクリプトを介さず）呼ばない（実行前の名前の実在確認と、PlayMode の
+  stale 検知が働かないため）
+- アセンブリから一部を除いて流すために、`test list` から残りの `FullName` の一覧を組み立ててバッチスクリプトに
+  渡さない。絞り込み実行スクリプトに除く名前を渡す
+- カテゴリで絞るときに `--filter_type category` を使わない。絞り込み実行スクリプトを使う
+- 絞り込み実行スクリプトが終了コード 1（名前が見つからない）を返したときに、名前を推測で直して再実行しない
 - テスト結果の報告を自然語で組み立てる（件数・テスト名・エラーメッセージの言い換え、要約、
   整形し直し）。必ず `scripts/summarize-test-result.sh` の出力を逐語で貼る
 - ツール出力に存在しない文字列を報告に書く

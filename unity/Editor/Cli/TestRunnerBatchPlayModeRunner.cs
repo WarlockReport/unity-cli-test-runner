@@ -21,11 +21,34 @@ namespace TestRunnerCli
         private static TestRunnerApi _activeApi;
         private static TestResultCollector _activeCollector;
 
-        internal static void StartBatch(string[] fullNames)
+        /// <summary>完全名(FullName)の一覧を完全一致で実行する（run_tests_batch_playmode）。</summary>
+        internal static string StartBatch(string[] fullNames)
+        {
+            return StartBatch(
+                new Filter { testMode = TestMode.PlayMode, testNames = fullNames },
+                $"full_names: {string.Join(",", fullNames)}",
+                fullNames);
+        }
+
+        /// <summary>任意の <see cref="Filter"/> で PlayMode テストを非同期実行する。戻り値は今回の実行の requestId。
+        /// requestId は完了ステータスに載り、起動応答の RequestId と照合して前回の結果を読んでいないかを確かめるのに使う。
+        /// ドメインリロードを越えて持ち回るため、リクエストファイルにも保存する。</summary>
+        internal static string StartBatch(Filter filter, string description)
+        {
+            return StartBatch(filter, description, null);
+        }
+
+        private static string StartBatch(Filter filter, string description, string[] fullNames)
         {
             InvalidatePreviousRun();
 
-            File.WriteAllText(RequestFilePath, JsonConvert.SerializeObject(new BatchTestRequest { fullNames = fullNames }));
+            var requestId = Guid.NewGuid().ToString("N");
+            File.WriteAllText(RequestFilePath, JsonConvert.SerializeObject(new BatchTestRequest
+            {
+                requestId = requestId,
+                filter = description,
+                fullNames = fullNames
+            }));
             if (File.Exists(StatusFilePath))
             {
                 File.Delete(StatusFilePath);
@@ -36,14 +59,11 @@ namespace TestRunnerCli
             _activeApi = api;
             _activeCollector = collector;
 
-            collector.OnRunFinished = () => OnRunFinished(api, collector);
+            collector.OnRunFinished = () => OnRunFinished(api, collector, requestId);
 
             api.RegisterCallbacks(collector);
-            api.Execute(new ExecutionSettings(new Filter
-            {
-                testMode = TestMode.PlayMode,
-                testNames = fullNames
-            }));
+            api.Execute(new ExecutionSettings(filter));
+            return requestId;
         }
 
         internal static string GetStatusJson()
@@ -137,14 +157,15 @@ namespace TestRunnerCli
 
             TestRunnerApi api = null;
             TestResultCollector collector = null;
+            var requestId = ReadRequestId();
             try
             {
                 api = ScriptableObject.CreateInstance<TestRunnerApi>();
                 collector = new TestResultCollector();
                 _activeApi = api;
                 _activeCollector = collector;
-
-                collector.OnRunFinished = () => OnRunFinished(api, collector);
+    
+                collector.OnRunFinished = () => OnRunFinished(api, collector, requestId);
                 api.RegisterCallbacks(collector);
             }
             catch (Exception ex)
@@ -154,17 +175,17 @@ namespace TestRunnerCli
                 // com.unity.pipelineパッケージ本体のCheckForPendingTests/ReattachResultCollectorと
                 // 同じ方針で、エラーステータスを書き込みリクエストファイルを削除してから終了する。
                 Debug.LogError($"[TestRunnerCli] Play Modeバッチ再接続に失敗しました: {ex.Message}");
-                WriteStatus(new { status = "error", message = ex.Message });
+                WriteStatus(new { status = "error", message = ex.Message, requestId });
                 CleanupRequestFile();
                 UnregisterCollector(api, collector);
             }
         }
 
-        private static void OnRunFinished(TestRunnerApi api, TestResultCollector collector)
+        private static void OnRunFinished(TestRunnerApi api, TestResultCollector collector, string requestId)
         {
             if (!collector.IsComplete)
             {
-                WriteStatus(new { status = "error", message = "テストが完了しませんでした。" });
+                WriteStatus(new { status = "error", message = "テストが完了しませんでした。", requestId });
             }
             else
             {
@@ -181,7 +202,8 @@ namespace TestRunnerCli
                         skipped = root.SkipCount,
                         inconclusive = root.InconclusiveCount
                     },
-                    results = collector.Results.ToArray()
+                    results = collector.Results.ToArray(),
+                    requestId
                 });
             }
 
@@ -232,9 +254,28 @@ namespace TestRunnerCli
             }
         }
 
+        /// <summary>リクエストファイルから requestId を読む。旧形式（requestId を持たない）や読めない場合は null。</summary>
+        private static string ReadRequestId()
+        {
+            try
+            {
+                return JsonConvert.DeserializeObject<BatchTestRequest>(File.ReadAllText(RequestFilePath))?.requestId;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[TestRunnerCli] バッチ実行のリクエストファイルを読めませんでした: {ex.Message}");
+                return null;
+            }
+        }
+
         [Serializable]
         private sealed class BatchTestRequest
         {
+            /// <summary>今回の実行の識別子。</summary>
+            public string requestId;
+            /// <summary>適用したフィルタの説明（診断用）。</summary>
+            public string filter;
+            /// <summary>完全名一覧の実行のときだけ値を持つ。</summary>
             public string[] fullNames;
         }
     }
