@@ -2,6 +2,7 @@
 using System;
 using Newtonsoft.Json.Linq;
 using Unity.Pipeline.Commands;
+using UnityEditor.TestTools.TestRunner.Api;
 
 namespace TestRunnerCli
 {
@@ -40,6 +41,46 @@ namespace TestRunnerCli
                 Mode = "PlayMode",
                 FilterApplied = $"full_names: {fullNames}",
                 Message = "PlayModeバッチテストを開始しました。wr.testrunner batch_test_statusをポーリングしてください。",
+                ExecutedAt = DateTime.UtcNow
+            };
+        }
+
+        [CliCommand("wr.testrunner", "run_tests_filtered_playmode", "アセンブリ・含めるカテゴリ・除くカテゴリ・除く完全名(FullName)を組み合わせて絞り込み、1回のExecuteでPlayModeテストを非同期実行する。名前・カテゴリ・アセンブリはすべて完全一致で照合する。完了確認はwr.testrunner batch_test_statusをポーリングし、応答のRequestIdとステータスのrequestIdを照合する。", MainThreadRequired = true, Tags = new[] { "tests" })]
+        public static TestExecutionResponse RunTestsFilteredPlayMode(
+            [CliArg("async_tests", "非同期実行するかどうか。PlayModeはPlay Mode突入でドメインリロードが発生するため、falseのままではエラーになる。", Required = true)] bool asyncTests = false,
+            [CliArg("assembly", "基準のアセンブリ名（完全一致、大文字小文字は区別しない）。省略時はPlayModeの全アセンブリ")] string assembly = null,
+            [CliArg("include_categories", "含めるカテゴリのカンマ区切りリスト（いずれかに当たれば含める）")] string includeCategories = null,
+            [CliArg("exclude_categories", "除くカテゴリのカンマ区切りリスト（いずれかに当たれば除く）")] string excludeCategories = null,
+            [CliArg("exclude_names", "除く完全名(FullName)のカンマ区切りリスト。クラスの完全名ならクラス全体、メソッドの完全名ならそのメソッドを除く")] string excludeNames = null)
+        {
+            if (!asyncTests)
+            {
+                return TestRunnerCliUtility.CreateErrorResponse(
+                    "run_tests_filtered_playmode",
+                    "PlayModeのテストは同期実行できません。Play Mode突入がドメインリロードを伴いHTTPリクエストが失われるため、" +
+                    "--async_tests trueを指定し、wr.testrunner batch_test_statusをポーリングしてください。");
+            }
+
+            var selection = TestSelection.Parse(assembly, includeCategories, excludeCategories, excludeNames);
+            if (selection.IsEmpty)
+            {
+                return TestRunnerCliUtility.CreateErrorResponse(
+                    "run_tests_filtered_playmode",
+                    "絞り込み条件が指定されていません。assembly・include_categories・exclude_categories・exclude_names のいずれかを指定してください。");
+            }
+
+            var description = selection.Describe();
+            var requestId = TestRunnerBatchPlayModeRunner.StartBatch(selection.ToFilter(TestMode.PlayMode), description);
+
+            return new TestExecutionResponse
+            {
+                Success = true,
+                Command = "run_tests_filtered_playmode",
+                Result = "running",
+                Mode = "PlayMode",
+                FilterApplied = description,
+                RequestId = requestId,
+                Message = "PlayModeテストを開始しました。wr.testrunner batch_test_statusをポーリングしてください。",
                 ExecutedAt = DateTime.UtcNow
             };
         }
