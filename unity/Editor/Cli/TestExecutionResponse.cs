@@ -26,6 +26,9 @@ namespace TestRunnerCli
         public string Mode { get; set; }
         /// <summary>適用したフィルタの内容。</summary>
         public string FilterApplied { get; set; }
+        /// <summary>PlayMode の非同期実行を識別する ID。起動応答だけが値を持ち、完了ステータスの
+        /// requestId と照合して、前回の実行結果を読んでいないかを確かめるために使う。</summary>
+        public string RequestId { get; set; }
 
         /// <summary>コレクションを初期化した空のレスポンスを作る。</summary>
         public TestExecutionResponse()
