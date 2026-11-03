@@ -240,7 +240,7 @@ normalize_csv() {
 
 # run-tests-filtered-*.sh の名前付き引数を解析し、次のグローバル変数を設定する。
 #   SEL_ASSEMBLY / SEL_EXCLUDE / SEL_INCLUDE_CATEGORY / SEL_EXCLUDE_CATEGORY（カンマ区切りは normalize_csv 済み）
-#   SEL_TIMEOUT（既定120）/ SEL_POLL_BUDGET（既定90。PlayMode のみ使う）
+#   SEL_TIMEOUT（既定300。主な用途がアセンブリ規模の実行のため）/ SEL_POLL_BUDGET（既定90。PlayMode のみ使う）
 # 未知のオプション・値の欠落は使い方の誤りとして exit 2、絞り込み条件が 1 つも無ければ exit 1、
 # 除く名前に引数付きケースの FullName（括弧を含む名前）があれば exit 1（いずれも戻らない）。
 # 使い方: parse_filtered_args <スクリプト名> <使い方の文字列> "$@"
@@ -251,7 +251,7 @@ parse_filtered_args() {
   SEL_EXCLUDE=""
   SEL_INCLUDE_CATEGORY=""
   SEL_EXCLUDE_CATEGORY=""
-  SEL_TIMEOUT=120
+  SEL_TIMEOUT=300
   SEL_POLL_BUDGET=90
 
   while [ "$#" -gt 0 ]; do

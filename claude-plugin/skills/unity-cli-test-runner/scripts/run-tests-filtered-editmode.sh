@@ -10,7 +10,7 @@
 # 見つからなければ実行しない。綴りを誤ったまま実行すると、除いたつもりのテストが黙って流れるため。
 #
 # 使い方: run-tests-filtered-editmode.sh [--assembly <アセンブリ名>] [--exclude <カンマ区切りFullName>]
-#           [--include-category <カンマ区切り>] [--exclude-category <カンマ区切り>] [--timeout <秒(既定120)>]
+#           [--include-category <カンマ区切り>] [--exclude-category <カンマ区切り>] [--timeout <秒(既定300)>]
 #   --assembly          基準のアセンブリ（完全一致、大文字小文字は区別しない）。省略時は EditMode の全アセンブリ
 #   --exclude           除く完全名。クラスの完全名ならクラス全体、メソッドの完全名ならそのメソッド（引数付きの
 #                       ケースは全ケース）、名前空間の完全名ならその配下を除く

@@ -10,7 +10,7 @@
 #
 # 使い方: run-tests-filtered-playmode.sh [--assembly <アセンブリ名>] [--exclude <カンマ区切りFullName>]
 #           [--include-category <カンマ区切り>] [--exclude-category <カンマ区切り>]
-#           [--timeout <秒(既定120)>] [--poll-budget <ポーリング予算秒(既定90)>]
+#           [--timeout <秒(既定300)>] [--poll-budget <ポーリング予算秒(既定90)>]
 #   各オプションの意味は run-tests-filtered-editmode.sh と同じ（省略時の基準は PlayMode の全アセンブリ）
 #
 # 前提: `unity`（Pipelineサーバー経由で起動中エディタに接続するCLI）と `jq` がPATH上にあること。

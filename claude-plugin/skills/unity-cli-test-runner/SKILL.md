@@ -294,6 +294,9 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
 | `--include-category` | 含めるカテゴリ。いずれかに当たれば含める（大文字小文字を区別する）。クラスに付けたカテゴリは配下のメソッドにも効く |
 | `--exclude-category` | 除くカテゴリ。いずれかに当たれば除く（大文字小文字を区別する） |
 
+`--timeout` の既定は 300 秒（アセンブリ規模の実行に合わせている）。PlayMode の `--poll-budget`（既定90秒）は、
+アセンブリ規模なら実行時間に合わせて伸ばす。
+
 例: 「`Foo.Tests` から `Slow` カテゴリと `Ns.BarTest` を除く」は
 `--assembly Foo.Tests --exclude-category Slow --exclude Ns.BarTest`。「`Slow` カテゴリのうち `Ns.SlowA` だけ流す」は
 `--include-category Slow --exclude Ns.SlowB,Ns.SlowC`。アセンブリの全件を流すだけなら、このスクリプトではなく

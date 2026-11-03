@@ -283,6 +283,10 @@ stage_filtered() {
     bash "$pm" --assembly Fixtures.PlayMode --exclude-category Slow \
     --exclude Fixtures.PlayMode.PlayModeFixture.Fail_Intentionally --timeout 300 --poll-budget 300 \
     && expect_names "9-filtered-playmode" "Fixtures.PlayMode.PlayModeFixture.Pass_AfterOneFrame" "Fixtures.PlayMode.CategorizedPlayModeFixture.Pass_AfterOneFrame"
+
+  # PlayMode で何も残らない組み合わせでも、ハング扱いにならず 0 件の結果として返る
+  run_test_case "9-filtered-playmode-zero" playmode "total=0 passed=0 failed=0 skipped=0" \
+    bash "$pm" --include-category Slow --exclude Fixtures.PlayMode --timeout 300 --poll-budget 300
 }
 
 # 段階 8 で壊れた .cs を書き込む場所（TestProject/.gitignore で除外済み）
