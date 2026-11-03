@@ -2,6 +2,23 @@
 
 All notable changes to this package are documented in this file.
 
+## [0.9.2] - 2026-11-03
+
+### Added
+
+- **絞り込み実行のコマンドを追加した**: `wr.testrunner run_tests_filtered_editmode` と `wr.testrunner run_tests_filtered_playmode`。
+  基準のアセンブリ（`assembly`）・含めるカテゴリ（`include_categories`）・除くカテゴリ（`exclude_categories`）・除く完全名
+  （`exclude_names`）を組み合わせて、1 回の実行で絞り込む。名前・カテゴリ・アセンブリはすべて完全一致で照合する
+  （カテゴリは大文字小文字を区別し、アセンブリは区別しない）。除く完全名はクラス・メソッド・名前空間のいずれでもよく、
+  そのノードの配下がすべて除かれる。PlayMode 版は `async_tests` が必須で、完了確認は従来どおり `wr.testrunner batch_test_status` で行う。
+- **PlayMode の実行に `RequestId` を付けた**: `run_tests_filtered_playmode` の起動応答の `RequestId` と、完了ステータス
+  （`batch_test_status`）の `requestId` が一致することで、前回の実行結果を読んでいないことを確かめられる。
+  `run_tests_batch_playmode` の完了ステータスにも `requestId` が入る（起動応答の形は変えていない）。
+
+### Changed
+
+- `TestExecutionResponse` に `RequestId` を追加した（PlayMode の絞り込み実行の起動応答だけが値を持ち、他は null）。
+
 ## [0.9.1] - 2026-10-25
 
 ### Changed

@@ -32,3 +32,4 @@
 | [0024](0024-version-aligned-with-pipeline.md) | プラグインと Unity 側パッケージの版番号を揃え、`com.unity.pipeline` の版に合わせる | Accepted (2026-10-24) |
 | [0025](0025-pipeline-0.9-only.md) | `com.unity.pipeline` 0.9.x への一本化、コマンドのグループ化への追従と対象 Unity の限定 | Accepted (2026-10-24) |
 | [0026](0026-parameterized-testcase-by-method-fullname.md) | 引数付きケースはメソッドの FullName でバッチ実行し、ケースの FullName は実行前に拒否する | Accepted (2026-10-25) |
+| [0027](0027-test-selection-filter.md) | 除く名前・カテゴリによる絞り込み実行を、Unity の Filter の除外指定で 1 回の実行として行う | Accepted (2026-11-03) |
