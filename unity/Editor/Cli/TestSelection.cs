@@ -65,9 +65,9 @@ namespace TestRunnerCli
             {
                 parts.Add($"assembly: {Assembly}");
             }
-            AddPart(parts, "include_categories", IncludeCategories);
-            AddPart(parts, "exclude_categories", ExcludeCategories);
-            AddPart(parts, "exclude_names", ExcludeNames);
+            AddPart(parts, "include-categories", IncludeCategories);
+            AddPart(parts, "exclude-categories", ExcludeCategories);
+            AddPart(parts, "exclude-names", ExcludeNames);
             return string.Join("; ", parts);
         }
 

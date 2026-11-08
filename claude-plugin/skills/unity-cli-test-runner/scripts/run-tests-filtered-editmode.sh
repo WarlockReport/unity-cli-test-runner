@@ -49,9 +49,9 @@ exit_on_unknown_selection EditMode 30 "$SCRIPT_NAME"
 # 指定された絞り込み条件だけをコマンドに渡す（空の引数を渡すと「指定あり」と区別がつかないため）
 cmd_args=()
 [ -n "$SEL_ASSEMBLY" ] && cmd_args+=(--assembly "$SEL_ASSEMBLY")
-[ -n "$SEL_INCLUDE_CATEGORY" ] && cmd_args+=(--include_categories "$SEL_INCLUDE_CATEGORY")
-[ -n "$SEL_EXCLUDE_CATEGORY" ] && cmd_args+=(--exclude_categories "$SEL_EXCLUDE_CATEGORY")
-[ -n "$SEL_EXCLUDE" ] && cmd_args+=(--exclude_names "$SEL_EXCLUDE")
+[ -n "$SEL_INCLUDE_CATEGORY" ] && cmd_args+=(--include-categories "$SEL_INCLUDE_CATEGORY")
+[ -n "$SEL_EXCLUDE_CATEGORY" ] && cmd_args+=(--exclude-categories "$SEL_EXCLUDE_CATEGORY")
+[ -n "$SEL_EXCLUDE" ] && cmd_args+=(--exclude-names "$SEL_EXCLUDE")
 
 echo "[2/2] wr.testrunner run_tests_filtered_editmode ${cmd_args[*]}" >&2
 raw="$(run_unity_cmd_resilient "$SEL_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" wr.testrunner run_tests_filtered_editmode "${cmd_args[@]}" --json)" && rc=0 || rc=$?

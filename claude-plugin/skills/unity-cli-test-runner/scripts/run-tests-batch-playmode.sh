@@ -2,9 +2,9 @@
 #
 # unity-cli-test-runner スキルの「PlayModeバッチテスト実行」を1コマンドにまとめる。
 # run-playmode-test.sh の複数FullName版。wr.testrunner batch_test_status ベースライン取得 →
-# wr.testrunner run_tests_batch_playmode --async_tests（コマンドレベル失敗も検知）→
-# wr.testrunner batch_test_status ポーリング → 完了確認 → ベースライン比較（同一full_names連続実行時の
-# stale検知）→ 結果に指定full_namesそれぞれの手がかりが含まれるかの簡易整合性チェック、を
+# wr.testrunner run_tests_batch_playmode --async-tests（コマンドレベル失敗も検知）→
+# wr.testrunner batch_test_status ポーリング → 完了確認 → ベースライン比較（同一full-names連続実行時の
+# stale検知）→ 結果に指定full-namesそれぞれの手がかりが含まれるかの簡易整合性チェック、を
 # 順に実行する。全体の構造は run-playmode-test.sh と同一で、呼び出すコマンド名とポーリング先
 # のみ wr.testrunner run_tests_batch_playmode / wr.testrunner batch_test_status に差し替えている。
 #
@@ -20,7 +20,7 @@
 #      （そのメソッドの全ケースが実行される）
 #   2  ハング・タイムアウト（ポーリング予算超過、`unity cmd`呼び出し自体の失敗を含む）、または
 #      wr.testrunner run_tests_batch_playmode がUnity側で受理されなかった場合
-#   3  完了は検知したが結果がstaleと疑われる（ベースライン完全一致、またはfull_namesのいずれかの
+#   3  完了は検知したが結果がstaleと疑われる（ベースライン完全一致、またはfull-namesのいずれかの
 #      手がかりが結果に見当たらない）。
 #      また、unity cmd がコマンドを見つけられなかった場合（プラグイン・UPMパッケージ・com.unity.pipeline の
 #      版の組み合わせが揃っていない疑い。標準エラーに診断が出る。再試行せず版を揃えてもらう）もこの終了コードになる
@@ -63,7 +63,7 @@ extract_status() {
   echo "$payload" | jq -r '.status // empty' 2>/dev/null || true
 }
 
-echo "[1/4] wr.testrunner batch_test_status でベースラインを取得（同一full_names連続実行時のstale検知用）" >&2
+echo "[1/4] wr.testrunner batch_test_status でベースラインを取得（同一full-names連続実行時のstale検知用）" >&2
 BASELINE=""
 if base_raw="$(run_unity_cmd wr.testrunner batch_test_status --json)"; then
   BASELINE="$base_raw"
@@ -72,8 +72,8 @@ else
   BASELINE=""
 fi
 
-echo "[2/4] wr.testrunner run_tests_batch_playmode --full_names ${FULL_NAMES} --async_tests true" >&2
-RUN_TESTS_RAW="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" wr.testrunner run_tests_batch_playmode --full_names "$FULL_NAMES" --async_tests true --json)" && rc=0 || rc=$?
+echo "[2/4] wr.testrunner run_tests_batch_playmode --full-names ${FULL_NAMES} --async-tests true" >&2
+RUN_TESTS_RAW="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" wr.testrunner run_tests_batch_playmode --full-names "$FULL_NAMES" --async-tests true --json)" && rc=0 || rc=$?
 exit_on_version_mismatch "$rc" "$RUN_TESTS_RAW"
 if [ "$rc" -ne 0 ]; then
   echo "wr.testrunner run_tests_batch_playmode のunity cmd呼び出し自体が失敗/タイムアウトしました（一時的なドメインリロード切断のリトライ予算超過を含む）。ハング・タイムアウト時の対応に従ってください。" >&2
