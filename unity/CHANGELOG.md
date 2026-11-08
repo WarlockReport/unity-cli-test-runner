@@ -2,6 +2,27 @@
 
 All notable changes to this package are documented in this file.
 
+## [0.10.0] - 2026-11-08
+
+### Changed
+
+- **`com.unity.pipeline` 0.10.0-exp.1 以降専用にした**: `TestRunnerCli.asmdef` の `versionDefines` を `0.10.0-exp.1` に上げた。
+  0.9 以前の Pipeline が入っているプロジェクトでは、本パッケージのコードはコンパイル対象から外れる。
+  0.9 を使い続ける場合は `#v0.9.2` に固定する
+- **（破壊的変更）`wr.testrunner` コマンドの引数名を kebab-case にした**: Pipeline 本体の引数名が 0.10 で kebab-case
+  （`--filter-type` 等）になったのに揃えた。`full_names` → `full-names`、`async_tests` → `async-tests`、
+  `include_categories` → `include-categories`、`exclude_categories` → `exclude-categories`、`exclude_names` → `exclude-names`。
+  `assembly`・`timeout`、コマンド名、応答 JSON は変えていない。引数は宣言どおりの名前でしか受け付けられないため、
+  旧名で呼ぶと `has no parameter --full_names. Did you mean --full-names?` のように拒否される
+- 引数名を含むメッセージ（`FilterApplied` の表記、入力エラーの案内）も新しい引数名にした
+
+### 同時に更新した Claude Code プラグイン（0.10.0）の変更
+
+- Pipeline 本体の `test run` を `--filter-type` / `--async-tests` で呼ぶ
+- コンパイル完了の判定を、0.10 で `editor status` に加わったドメインリロード回数（`codeLoadCount`）で行い、
+  待ち時間を縮めた（2 回連続の安定確認と 3 秒間隔のポーリングをやめた）
+- 引数名の不一致（`has no parameter --`）を、ハング（終了コード 2）ではなく版の組み合わせのずれ（終了コード 3）として報告する
+
 ## [0.9.2] - 2026-11-03
 
 ### Added
