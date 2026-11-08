@@ -28,7 +28,7 @@
 #      または指定した名前が test list に見つからない（標準エラーに見つからない名前を列挙する）
 #   2  使い方の誤り（未知の引数・値の欠落）、ハング・タイムアウト（一時的切断のリトライ予算超過を含む、
 #      `unity cmd`呼び出し自体の失敗）、または Unity 側で受理されなかった。スキルの「ハング・タイムアウト時の対応」に従う
-#   3  unity cmd がコマンドを見つけられなかった（プラグイン・UPMパッケージ・com.unity.pipeline の版の組み合わせが
+#   3  unity cmd がコマンドまたは引数を見つけられなかった（プラグイン・UPMパッケージ・com.unity.pipeline の版の組み合わせが
 #      揃っていない疑い。標準エラーに診断が出る。再試行せず版を揃えてもらう）、または test list の応答が想定外の形
 
 set -euo pipefail
@@ -49,9 +49,9 @@ exit_on_unknown_selection EditMode 30 "$SCRIPT_NAME"
 # 指定された絞り込み条件だけをコマンドに渡す（空の引数を渡すと「指定あり」と区別がつかないため）
 cmd_args=()
 [ -n "$SEL_ASSEMBLY" ] && cmd_args+=(--assembly "$SEL_ASSEMBLY")
-[ -n "$SEL_INCLUDE_CATEGORY" ] && cmd_args+=(--include_categories "$SEL_INCLUDE_CATEGORY")
-[ -n "$SEL_EXCLUDE_CATEGORY" ] && cmd_args+=(--exclude_categories "$SEL_EXCLUDE_CATEGORY")
-[ -n "$SEL_EXCLUDE" ] && cmd_args+=(--exclude_names "$SEL_EXCLUDE")
+[ -n "$SEL_INCLUDE_CATEGORY" ] && cmd_args+=(--include-categories "$SEL_INCLUDE_CATEGORY")
+[ -n "$SEL_EXCLUDE_CATEGORY" ] && cmd_args+=(--exclude-categories "$SEL_EXCLUDE_CATEGORY")
+[ -n "$SEL_EXCLUDE" ] && cmd_args+=(--exclude-names "$SEL_EXCLUDE")
 
 echo "[2/2] wr.testrunner run_tests_filtered_editmode ${cmd_args[*]}" >&2
 raw="$(run_unity_cmd_resilient "$SEL_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" wr.testrunner run_tests_filtered_editmode "${cmd_args[@]}" --json)" && rc=0 || rc=$?

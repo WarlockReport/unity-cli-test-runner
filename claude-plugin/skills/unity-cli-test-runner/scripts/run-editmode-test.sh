@@ -6,7 +6,7 @@
 # EditModeの test run は同期応答のため、PlayMode版（run-playmode-test.sh）と異なりポーリングは
 # 不要で、この起動呼び出し1回のみで完結する。
 #
-# 使い方: run-editmode-test.sh <filter> <filter_type> [timeout(既定120)]
+# 使い方: run-editmode-test.sh <filter> <filter-type> [timeout(既定120)]
 #
 # 前提: `unity`（Pipelineサーバー経由で起動中エディタに接続するCLI）と `jq` がPATH上にあること。
 #
@@ -16,7 +16,7 @@
 #      通常の結果報告に進んでよい
 #   2  ハング・タイムアウト（一時的切断のリトライ予算超過を含む、`unity cmd`呼び出し自体の失敗）。
 #      スキルの「ハング・タイムアウト時の対応」に従う
-#   3  unity cmd がコマンドを見つけられなかった（プラグイン・UPMパッケージ・com.unity.pipeline の版の組み合わせが
+#   3  unity cmd がコマンドまたは引数を見つけられなかった（プラグイン・UPMパッケージ・com.unity.pipeline の版の組み合わせが
 #      揃っていない疑い。標準エラーに診断が出る。再試行せず版を揃えてもらう）
 
 set -euo pipefail
@@ -26,7 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/_lib.sh"
 
 if [ "$#" -lt 2 ]; then
-  echo "使い方: run-editmode-test.sh <filter> <filter_type> [timeout(既定120)]" >&2
+  echo "使い方: run-editmode-test.sh <filter> <filter-type> [timeout(既定120)]" >&2
   exit 2
 fi
 
@@ -35,8 +35,8 @@ FILTER_TYPE="$2"
 CLI_TIMEOUT="${3:-120}"
 ONESHOT_RETRY_BUDGET_SECONDS=15
 
-echo "[1/1] test run --mode EditMode --filter ${FILTER} --filter_type ${FILTER_TYPE}" >&2
-raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" test run --mode EditMode --filter "$FILTER" --filter_type "$FILTER_TYPE" --json)" && rc=0 || rc=$?
+echo "[1/1] test run --mode EditMode --filter ${FILTER} --filter-type ${FILTER_TYPE}" >&2
+raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" test run --mode EditMode --filter "$FILTER" --filter-type "$FILTER_TYPE" --json)" && rc=0 || rc=$?
 exit_on_version_mismatch "$rc" "$raw"
 if [ "$rc" -ne 0 ]; then
   echo "test run のunity cmd呼び出し自体が失敗/タイムアウトしました（一時的なドメインリロード切断のリトライ予算超過を含む）。ハング・タイムアウト時の対応に従ってください。" >&2

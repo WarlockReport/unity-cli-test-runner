@@ -26,7 +26,7 @@ namespace TestRunnerCli
         {
             return StartBatch(
                 new Filter { testMode = TestMode.PlayMode, testNames = fullNames },
-                $"full_names: {string.Join(",", fullNames)}",
+                $"full-names: {string.Join(",", fullNames)}",
                 fullNames);
         }
 

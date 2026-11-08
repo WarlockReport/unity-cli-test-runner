@@ -6,10 +6,10 @@
 #
 # 使い方: bash e2e/run-all.sh [--pipeline <版>]   （リポジトリ内のどこから実行してもよい）
 #
-#   --pipeline <版>  起動中の Editor の com.unity.pipeline を一時的に <版>（例: 0.9.0-exp.1）へ差し替えて照合し、
+#   --pipeline <版>  起動中の Editor の com.unity.pipeline を一時的に <版>（例: 0.10.0-exp.1）へ差し替えて照合し、
 #                    終了時（失敗・中断時も）に TestProject/Packages の manifest.json / packages-lock.json を
 #                    git の状態へ戻して再解決させる。旧版の Pipeline でも動くことを確かめるために使う。
-#                    戻す処理を 0.9 のコマンド名で行うため、0.9 未満の版には切り替えられない
+#                    スクリプト群が 0.10 専用（引数名・コンパイル完了の判定）のため、0.10 未満の版には切り替えられない
 #
 # 前提: TestProject を Unity Editor で開いていること。`unity` と `jq` が PATH 上にあること。
 #
@@ -319,13 +319,13 @@ CS
   expect_exit "8-compile-error-recovered" 0 bash "${SCRIPTS}/ensure-compile-clean.sh"
 }
 
-# 0.9 未満の版かどうか（major.minor を数値で比べる）。0.9 以上なら 0 を返す
-is_pipeline_0_9_or_later() {
+# 0.10 以上の版かどうか（major.minor を数値で比べる）。0.10 以上なら 0 を返す
+is_pipeline_0_10_or_later() {
   local major minor
   major="$(echo "$1" | cut -d. -f1)"
   minor="$(echo "$1" | cut -d. -f2)"
   case "${major}${minor}" in *[!0-9]*|"") return 1 ;; esac
-  [ "$major" -gt 0 ] || [ "$minor" -ge 9 ]
+  [ "$major" -gt 0 ] || [ "$minor" -ge 10 ]
 }
 
 # --pipeline 指定時に、起動中の Editor の com.unity.pipeline を差し替えてコンパイル完了まで待つ
@@ -334,7 +334,7 @@ switch_pipeline() {
   echo "Pipeline を ${version} へ一時的に差し替えます" >&2
   # ここから先は失敗しても manifest を戻す必要がある
   PIPELINE_SWITCHED=1
-  if ! run_saved "pipeline-switch" unity cmd package add --identifier "com.unity.pipeline@${version}" \
+  if ! run_saved "pipeline-switch" unity cmd package add --name "com.unity.pipeline@${version}" \
       --confirm true --wait true --json --timeout 300 \
     || [ "$(jq -r '.data.result.status // empty' "${OUT_DIR}/pipeline-switch.out" 2>/dev/null)" != "completed" ]; then
     echo "com.unity.pipeline@${version} への差し替えに失敗しました（${OUT_DIR}/pipeline-switch.out を参照）。" >&2
@@ -393,7 +393,7 @@ main() {
       --pipeline)
         PIPELINE_VERSION="${2:-}"
         if [ -z "$PIPELINE_VERSION" ]; then
-          echo "--pipeline には版を指定してください（例: --pipeline 0.9.0-exp.1）。" >&2
+          echo "--pipeline には版を指定してください（例: --pipeline 0.10.0-exp.1）。" >&2
           exit 2
         fi
         shift 2
@@ -404,8 +404,8 @@ main() {
         ;;
     esac
   done
-  if [ -n "$PIPELINE_VERSION" ] && ! is_pipeline_0_9_or_later "$PIPELINE_VERSION"; then
-    echo "0.9 未満の版（${PIPELINE_VERSION}）には切り替えられません（戻す処理を 0.9 のコマンド名で行うため）。" >&2
+  if [ -n "$PIPELINE_VERSION" ] && ! is_pipeline_0_10_or_later "$PIPELINE_VERSION"; then
+    echo "0.10 未満の版（${PIPELINE_VERSION}）には切り替えられません（スクリプト群が 0.10 専用のため）。" >&2
     exit 2
   fi
 

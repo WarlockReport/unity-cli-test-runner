@@ -13,7 +13,7 @@ namespace TestRunnerCli
     {
         [CliCommand("wr.testrunner", "run_tests_batch_editmode", "複数の完全名(FullName)をカンマ区切りで受け取り、1回のExecuteでEditModeテストをまとめて実行する", MainThreadRequired = true, Tags = new[] { "tests" })]
         public static async Task<TestExecutionResponse> RunTestsBatchEditMode(
-            [CliArg("full_names", "実行する完全名(FullName)のカンマ区切りリスト", Required = true)] string fullNames,
+            [CliArg("full-names", "実行する完全名(FullName)のカンマ区切りリスト", Required = true)] string fullNames,
             [CliArg("timeout", "テスト実行タイムアウト秒(既定300)")] int timeout = 300)
         {
             var names = TestRunnerCliUtility.ParseFullNames(fullNames);
@@ -21,7 +21,7 @@ namespace TestRunnerCli
             {
                 return TestRunnerCliUtility.CreateErrorResponse(
                     "run_tests_batch_editmode",
-                    "full_namesが空です。カンマ区切りの完全名を1件以上指定してください。");
+                    "full-namesが空です。カンマ区切りの完全名を1件以上指定してください。");
             }
 
             var startTime = DateTime.UtcNow;

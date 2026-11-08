@@ -19,7 +19,7 @@
 #      （そのメソッドの全ケースが実行される）
 #   2  ハング・タイムアウト（一時的切断のリトライ予算超過を含む、`unity cmd`呼び出し自体の失敗）。
 #      スキルの「ハング・タイムアウト時の対応」に従う
-#   3  unity cmd がコマンドを見つけられなかった（プラグイン・UPMパッケージ・com.unity.pipeline の版の組み合わせが
+#   3  unity cmd がコマンドまたは引数を見つけられなかった（プラグイン・UPMパッケージ・com.unity.pipeline の版の組み合わせが
 #      揃っていない疑い。標準エラーに診断が出る。再試行せず版を揃えてもらう）
 
 set -euo pipefail
@@ -38,8 +38,8 @@ exit_on_parameterized_case_names "$FULL_NAMES" "run-tests-batch-editmode.sh"
 CLI_TIMEOUT="${2:-120}"
 ONESHOT_RETRY_BUDGET_SECONDS=15
 
-echo "[1/1] wr.testrunner run_tests_batch_editmode --full_names ${FULL_NAMES}" >&2
-raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" wr.testrunner run_tests_batch_editmode --full_names "$FULL_NAMES" --json)" && rc=0 || rc=$?
+echo "[1/1] wr.testrunner run_tests_batch_editmode --full-names ${FULL_NAMES}" >&2
+raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" wr.testrunner run_tests_batch_editmode --full-names "$FULL_NAMES" --json)" && rc=0 || rc=$?
 exit_on_version_mismatch "$rc" "$raw"
 if [ "$rc" -ne 0 ]; then
   echo "wr.testrunner run_tests_batch_editmode のunity cmd呼び出し自体が失敗/タイムアウトしました（一時的なドメインリロード切断のリトライ予算超過を含む）。ハング・タイムアウト時の対応に従ってください。" >&2

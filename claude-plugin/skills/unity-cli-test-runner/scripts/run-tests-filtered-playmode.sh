@@ -2,7 +2,7 @@
 #
 # unity-cli-test-runner スキルの「PlayMode 絞り込み実行」を 1 コマンドにまとめる。
 # run-tests-filtered-editmode.sh の PlayMode 版。test list による名前の存在確認 →
-# wr.testrunner batch_test_status ベースライン取得 → wr.testrunner run_tests_filtered_playmode --async_tests →
+# wr.testrunner batch_test_status ベースライン取得 → wr.testrunner run_tests_filtered_playmode --async-tests →
 # wr.testrunner batch_test_status ポーリング → 完了確認 → 完了ステータスの requestId と起動応答の RequestId の照合、
 # を順に実行する。全体の構造は run-tests-batch-playmode.sh と同じで、整合性チェックだけが異なる
 # （除外で絞り込む実行では「指定した名前が結果に含まれるか」を手がかりにできないため、実行ごとの requestId で
@@ -24,7 +24,7 @@
 #   2  使い方の誤り（未知の引数・値の欠落）、ハング・タイムアウト（ポーリング予算超過、`unity cmd`呼び出し自体の
 #      失敗を含む）、または wr.testrunner run_tests_filtered_playmode がUnity側で受理されなかった
 #   3  完了は検知したが結果がstaleと疑われる（完了ステータスの requestId が起動応答の RequestId と一致しない）。
-#      また、unity cmd がコマンドを見つけられなかった場合・起動応答に RequestId が無い場合（プラグイン・UPMパッケージ・
+#      また、unity cmd がコマンドまたは引数を見つけられなかった場合・起動応答に RequestId が無い場合（プラグイン・UPMパッケージ・
 #      com.unity.pipeline の版の組み合わせが揃っていない疑い。再試行せず版を揃えてもらう）、test list の応答が
 #      想定外の形の場合もこの終了コードになる
 #
@@ -71,12 +71,12 @@ fi
 # 指定された絞り込み条件だけをコマンドに渡す（空の引数を渡すと「指定あり」と区別がつかないため）
 cmd_args=()
 [ -n "$SEL_ASSEMBLY" ] && cmd_args+=(--assembly "$SEL_ASSEMBLY")
-[ -n "$SEL_INCLUDE_CATEGORY" ] && cmd_args+=(--include_categories "$SEL_INCLUDE_CATEGORY")
-[ -n "$SEL_EXCLUDE_CATEGORY" ] && cmd_args+=(--exclude_categories "$SEL_EXCLUDE_CATEGORY")
-[ -n "$SEL_EXCLUDE" ] && cmd_args+=(--exclude_names "$SEL_EXCLUDE")
+[ -n "$SEL_INCLUDE_CATEGORY" ] && cmd_args+=(--include-categories "$SEL_INCLUDE_CATEGORY")
+[ -n "$SEL_EXCLUDE_CATEGORY" ] && cmd_args+=(--exclude-categories "$SEL_EXCLUDE_CATEGORY")
+[ -n "$SEL_EXCLUDE" ] && cmd_args+=(--exclude-names "$SEL_EXCLUDE")
 
-echo "[3/5] wr.testrunner run_tests_filtered_playmode ${cmd_args[*]} --async_tests true" >&2
-RUN_RAW="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" wr.testrunner run_tests_filtered_playmode "${cmd_args[@]}" --async_tests true --json)" && rc=0 || rc=$?
+echo "[3/5] wr.testrunner run_tests_filtered_playmode ${cmd_args[*]} --async-tests true" >&2
+RUN_RAW="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" wr.testrunner run_tests_filtered_playmode "${cmd_args[@]}" --async-tests true --json)" && rc=0 || rc=$?
 exit_on_version_mismatch "$rc" "$RUN_RAW"
 if [ "$rc" -ne 0 ]; then
   echo "wr.testrunner run_tests_filtered_playmode のunity cmd呼び出し自体が失敗/タイムアウトしました（一時的なドメインリロード切断のリトライ予算超過を含む）。ハング・タイムアウト時の対応に従ってください。" >&2

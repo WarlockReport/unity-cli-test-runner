@@ -33,3 +33,5 @@
 | [0025](0025-pipeline-0.9-only.md) | `com.unity.pipeline` 0.9.x への一本化、コマンドのグループ化への追従と対象 Unity の限定 | Accepted (2026-10-24) |
 | [0026](0026-parameterized-testcase-by-method-fullname.md) | 引数付きケースはメソッドの FullName でバッチ実行し、ケースの FullName は実行前に拒否する | Accepted (2026-10-25) |
 | [0027](0027-test-selection-filter.md) | 除く名前・カテゴリによる絞り込み実行を、Unity の Filter の除外指定で 1 回の実行として行う | Accepted (2026-11-03) |
+| [0028](0028-pipeline-0.10-only.md) | `com.unity.pipeline` 0.10.x への一本化と引数名の kebab-case 化、引数名の不一致を版のずれとして報告する | Accepted (2026-11-08) |
+| [0029](0029-compile-done-by-code-load-count.md) | ドメインリロード回数（`codeLoadCount`）でコンパイル完了を判定し、待ち時間を縮める | Accepted (2026-11-08) |

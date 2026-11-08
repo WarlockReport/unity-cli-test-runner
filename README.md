@@ -1,6 +1,6 @@
 # unity-cli-test-runner
 
-[Unity CLI](https://docs.unity.com/en-us/unity-cli/unity-cli) と [Unity Pipeline package](https://docs.unity3d.com/Packages/com.unity.pipeline@0.9/manual/index.html) を使用して、コード修正後に指定したテストを実行するための Claude Code プラグインです。
+[Unity CLI](https://docs.unity.com/en-us/unity-cli/unity-cli) と [Unity Pipeline package](https://docs.unity3d.com/Packages/com.unity.pipeline@0.10/manual/index.html) を使用して、コード修正後に指定したテストを実行するための Claude Code プラグインです。
 
 対象 Unity プロジェクト側に導入する Unity Editor 拡張（UPMパッケージ）と、Claude Code 側のスキル・専用サブエージェントの 2 つで構成されています。
 
@@ -9,11 +9,12 @@
 - `unity` CLI と `jq` が PATH 上にあること（`unity` CLI は 1.0.0-beta.13 で検証。`unity cmd <グループ> <コマンド>` の
   形でコマンドを転送できる版が必要）
 - 対象 Unity プロジェクトが **Unity 6000.3（LTS）** であること。対象とする Unity は LTS の版に限り、現在は 6000.3 だけで検証している
-- 対象Unityプロジェクトに `com.unity.pipeline` パッケージ（**0.9.0-exp.1 以降**）が導入済みであること。
-  0.9 でコマンドが「グループ + 名前」に再編され、旧名では実行できなくなったため、0.8 以前には対応していない
-  （詳細は [ADR-0025](docs/decisions/0025-pipeline-0.9-only.md)）。**0.8 を使い続ける場合は、プラグインと
-  Unity 側パッケージの両方を `v0.8.0` に固定してください**（[版番号と対応する `com.unity.pipeline`](#版番号と対応する-comunitypipeline)）。
-  0.7 以前を切った経緯は [ADR-0016](docs/decisions/0016-pipeline-0.8-only.md)・
+- 対象Unityプロジェクトに `com.unity.pipeline` パッケージ（**0.10.0-exp.1 以降**）が導入済みであること。
+  0.10 で引数名が kebab-case（`--filter-type` 等）になり、コンパイル完了の判定に 0.10 で加わった `editor status` の
+  `codeLoadCount` を使うため、0.9 以前には対応していない（詳細は [ADR-0028](docs/decisions/0028-pipeline-0.10-only.md)・
+  [ADR-0029](docs/decisions/0029-compile-done-by-code-load-count.md)）。**0.9 を使い続ける場合は、プラグインと
+  Unity 側パッケージの両方を `v0.9.2` に、0.8 なら `v0.8.0` に固定してください**（[版番号と対応する `com.unity.pipeline`](#版番号と対応する-comunitypipeline)）。
+  0.8 以前を切った経緯は [ADR-0025](docs/decisions/0025-pipeline-0.9-only.md)・ [ADR-0016](docs/decisions/0016-pipeline-0.8-only.md)・
   [ADR-0015](docs/decisions/0015-pipeline-0.7-only.md)・[ADR-0012](docs/decisions/0012-vendor-pipeline-internal-types.md)
 
 ## 版番号と対応する `com.unity.pipeline`
@@ -25,6 +26,7 @@ Claude Code プラグインと Unity 側パッケージは同じ版番号で揃�
 
 | `com.unity.pipeline` | 使うタグ |
 | --- | --- |
+| 0.10.x | `v0.10.0` |
 | 0.9.x | `v0.9.2` |
 | 0.8.x | `v0.8.0` |
 
@@ -86,20 +88,20 @@ https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity
 ### 版を固定してインストールする
 
 上の手順はどちらも既定ブランチの最新を入れます。特定の版に固定するには、
-[対応表](#版番号と対応する-comunitypipeline) で選んだタグ（以下は `v0.9.2` の例）を両方に付けます。
+[対応表](#版番号と対応する-comunitypipeline) で選んだタグ（以下は `v0.10.0` の例）を両方に付けます。
 
 プラグインは、マーケットプレイスの登録時に `#<タグ>` を付けます。プラグイン本体はマーケットプレイスと同じリポジトリから
 取り出されるため、これでプラグインもそのタグの版に固定されます。
 
 ```
-/plugin marketplace add WarlockReport/unity-cli-test-runner#v0.9.2
+/plugin marketplace add WarlockReport/unity-cli-test-runner#v0.10.0
 /plugin install wr-unity-cli-tools
 ```
 
 Unity 側パッケージは、git URL の末尾に `#<タグ>` を付けます（`Packages/manifest.json` に直接書いてもかまいません）。
 
 ```
-https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity#v0.9.2
+https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity#v0.10.0
 ```
 
 固定先のタグを変えるときは、マーケットプレイスは同じ名前で 2 つ登録できないため、一度削除してから新しいタグで登録し直します
