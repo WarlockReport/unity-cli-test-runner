@@ -16,6 +16,9 @@
 #    （unity cmd の終了コード 6）として現れることを実測で確認した（C# 変更直後の再コンパイル中）。
 #    また、com.unity.pipeline 自体の版を差し替えた直後（サーバーの再起動中）は、接続そのものが
 #    "Network error: An error occurred while sending the request." で失敗することも確認した。
+#    com.unity.pipeline 0.10 + unity CLI 1.0.0-beta.13 では、ドメインリロードで落ちかけているサーバーから
+#    応答が途中までしか返らず、"Failed to execute command '<名前>': Invalid response format from Pipeline server"
+#    （unity cmd の終了コード 6）で失敗することがある（実地検証済み、2026-11-08。C# 変更直後の再コンパイル中）。
 #
 # 2. サーバーがbusyを返す（com.unity.pipeline 0.6.0-exp.1 以降）
 #    0.6は、コマンドを実行できない状態を HTTP 503 と構造化エンベロープ
@@ -40,7 +43,7 @@
 
 is_transient_pipeline_unreachable() {
   local raw="$1"
-  echo "$raw" | grep -qE "No Unity Editor instances found with reachable Pipeline servers|No Pipeline instance found for project|Network error: An error occurred while sending the request"
+  echo "$raw" | grep -qE "No Unity Editor instances found with reachable Pipeline servers|No Pipeline instance found for project|Network error: An error occurred while sending the request|Invalid response format from Pipeline server"
 }
 
 # 0.6以降のbusy応答を検出する。`unity` CLIが503応答をどう整形するかは版によって異なりうるため、

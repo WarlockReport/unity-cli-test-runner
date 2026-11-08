@@ -13,8 +13,8 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 
 ## 前提
 
-- 対象Unityプロジェクトの `com.unity.pipeline` は **0.8.0-exp.1 以降**であること（0.7 以前は
-  非対応・未検証）
+- 対象Unityプロジェクトの `com.unity.pipeline` は **0.10.0-exp.1 以降**であること（0.9 以前は
+  非対応。コンパイル完了の判定に 0.10 で加わった `editor status` の `codeLoadCount` を使う）
 - 各コマンドには必ず明示的な `--timeout <秒>` を付ける（内部で呼ぶスクリプト側が既定値を持つ）
 - スクリプトはロジックの複製を避けるため `unity-cli-test-runner` スキル側のものを呼ぶ。本ドキュメントの
   コマンドに書かれたパスは、スキルの読み込み時にこのスキルのディレクトリの絶対パスへ展開されるので、
@@ -50,8 +50,8 @@ ${CLAUDE_SKILL_DIR}/../unity-cli-test-runner/scripts/check-editor-ready.sh
 ${CLAUDE_SKILL_DIR}/../unity-cli-test-runner/scripts/ensure-compile-clean.sh [予算秒数(既定60)]
 ```
 
-`console clear → script recompile → script recompile_status ポーリング → editor status によるドメインリロード
-完了の安定確認 → script recompile_status の読み直し（判定）＋ console get(error) での詳細取得` を順に
+`console clear → editor status でドメインリロード回数（codeLoadCount）の基準値を取得 → script recompile →
+回数が基準値より増えて落ち着くまでの完了待ち → script recompile_status の読み直し（判定）＋ console get(error) での詳細取得` を順に
 実行する（コンパイルエラーの判定は `script recompile_status` の `failed`/`compilationFailed` が一次情報で、
 `console get` は詳細取得専用。詳細・自動リカバリの挙動は
 `unity-cli-test-runner` スキルの該当箇所を参照。ロジックは完全に共通）。
@@ -62,7 +62,7 @@ ${CLAUDE_SKILL_DIR}/../unity-cli-test-runner/scripts/ensure-compile-clean.sh [�
 | 1 | コンパイルエラーを検出（標準出力に詳細） | エラー内容をそのまま報告して終了する |
 | 2 | ポーリング予算超過（`unity cmd`呼び出し自体の失敗を含む。スクリプト内自動リカバリを試みても解消しなかった） | 盲目的に再試行せず、呼び出し元にハング・タイムアウトの可能性をそのまま報告する |
 | 3 | `script recompile_status` から `failed`/`compilationFailed` を取り出せず判定不能（`console get` の応答が想定外なだけなら exit 1 になる） | 標準出力の生JSONを確認して手動判断する |
-| 3 | `unity cmd` がコマンドまたは引数を見つけられなかった（標準エラーに「版の組み合わせが揃っていない可能性」の診断が出る） | 再試行しない。プラグイン・UPMパッケージ・`com.unity.pipeline` の版の組み合わせが揃っていない。README の「版番号と対応する com.unity.pipeline」の表で版を揃えるようユーザーに伝える |
+| 3 | `unity cmd` がコマンドまたは引数を見つけられなかった、または `editor status` に `codeLoadCount` が無かった（標準エラーに「版の組み合わせが揃っていない可能性」の診断が出る） | 再試行しない。プラグイン・UPMパッケージ・`com.unity.pipeline` の版の組み合わせが揃っていない。README の「版番号と対応する com.unity.pipeline」の表で版を揃えるようユーザーに伝える |
 | 4 | 内部の`unity cmd`呼び出し（`console clear`/`script recompile`/`editor status`のいずれか）が失敗したが、メインスレッド不要の `script recompile_status` は正常応答した（モーダルダイアログによるメインスレッドブロックの可能性が高い。**真のハングではない**） | ハングとして扱わず、ユーザーにダイアログを閉じてもらうよう依頼する（エディタの再起動は不要）。`.unity`/`.prefab`ファイルをUnity上で開いた状態のまま外部から変更すると、外部変更確認ダイアログが出てこの状態になることが多い |
 
 複数ファイルにまたがる大きめの修正の直後はドメインリロードが長引く傾向があるため、既定を

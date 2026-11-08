@@ -16,8 +16,9 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 
 ## 前提
 
-- 対象Unityプロジェクトの `com.unity.pipeline` は **0.8.0-exp.1 以降**であること。0.7 以前は
-  非対応・未検証（0.8 で本パッケージのカスタムコマンドが参照する属性のアセンブリが変わったため）
+- 対象Unityプロジェクトの `com.unity.pipeline` は **0.10.0-exp.1 以降**であること。0.9 以前は
+  非対応（0.10 で引数名が kebab-case になり、コンパイル完了の判定に 0.10 で加わった `editor status` の
+  `codeLoadCount` を使うため。0.9 を使い続ける場合は README の版固定の手順に従う）
 - 各コマンドには必ず明示的な `--timeout <秒>` を付ける
 - エディタの起動確認はワークフローのステップ0（`${CLAUDE_SKILL_DIR}/scripts/check-editor-ready.sh`）で行う
 - 本ドキュメントのコマンドに書かれたパスは、スキルの読み込み時にこのスキルのディレクトリの絶対パスへ
@@ -88,16 +89,18 @@ ${CLAUDE_SKILL_DIR}/scripts/check-editor-ready.sh
 ${CLAUDE_SKILL_DIR}/scripts/ensure-compile-clean.sh
 ```
 
-このスクリプトは `console clear → script recompile → script recompile_status ポーリング → editor status によるドメイン
-リロード完了の安定確認 → script recompile_status の読み直し（判定）＋ console get（詳細取得）` を順に実行し、
+このスクリプトは `console clear → editor status でドメインリロード回数（codeLoadCount）の基準値を取得 → script recompile →
+回数が基準値より増えて落ち着くまでの完了待ち → script recompile_status の読み直し（判定）＋ console get（詳細取得）` を順に実行し、
 以下の終了コードを返す（`unity` CLI と `jq` がPATH上にあることが前提）。コンパイルエラーの
 **判定**は `script recompile_status` の `failed`/`compilationFailed` を一次情報とし、`console get` は
 **詳細取得専用**である。そのため詳細が取れなくても（`entries` が空でも、`console get`
 呼び出し自体が失敗しても）判定は覆らず `exit 1` になる。また `script recompile` が
-`status:"failed"` を返した場合は、ポーリングを飛ばして直ちに詳細取得へ進む。第1引数でポーリング予算秒数を上書きできる（既定60秒。この予算は
-script recompile_statusポーリングとeditor statusによる安定確認の両方に個別適用され、さらに各ステップは
+`status:"failed"` を返した場合は、ポーリングを飛ばして直ちに詳細取得へ進む。`up_to_date`（変更なし）なら、
+エディタ側で別のコンパイルが進んでいないことを `editor status` で1回確かめるだけで完了待ちを省く。
+第1引数でポーリング予算秒数を上書きできる（既定60秒。この予算は基準値を取る前の待ち〔エディタ側の
+コンパイル・リロードがすでに走っている場合だけ〕と完了待ちの両方に個別適用され、さらに完了待ちは
 予算超過時に1回だけ自動リカバリ（下記「自動リカバリ」参照）を試みるため、全体の最大所要時間は
-指定値の4倍強（既定なら最大240秒＋自動リカバリの直接確認分、最大30秒程度）になりうる）。
+指定値の3倍強（既定なら最大180秒＋自動リカバリの直接確認分、最大15秒程度）になりうる）。
 複数ファイルにまたがる大きめの修正の直後（レビュー指摘の一括反映など）は
 ドメインリロードが長引く傾向があるため、既定を待たずに第1引数で予算を伸ばしてよい（例:
 `${CLAUDE_SKILL_DIR}/scripts/ensure-compile-clean.sh 120`）。
@@ -108,22 +111,25 @@ script recompile_statusポーリングとeditor statusによる安定確認の�
 | 1 | コンパイルエラーを検出（標準出力に詳細） | テスト対象の解決に進まず、エラー内容をそのまま報告して終了する |
 | 2 | ポーリング予算超過（`unity cmd`呼び出し自体の失敗を含む） | 「ハング・タイムアウト時の対応」に従う（盲目的に再試行しない） |
 | 3 | `script recompile_status` から `failed`/`compilationFailed` を取り出せず判定不能（`console get` の応答が想定外なだけなら、判定は済んでいるので exit 3 ではなく exit 1 になる） | 標準出力の生JSONを確認して手動判断する |
-| 3 | `unity cmd` がコマンドまたは引数を見つけられなかった（標準エラーに「版の組み合わせが揃っていない可能性」の診断が出る） | 再試行しない。プラグイン・UPMパッケージ・`com.unity.pipeline` の版の組み合わせが揃っていない。README の「版番号と対応する com.unity.pipeline」の表で版を揃えるようユーザーに伝える |
+| 3 | `unity cmd` がコマンドまたは引数を見つけられなかった、または `editor status` に `codeLoadCount` が無かった（標準エラーに「版の組み合わせが揃っていない可能性」の診断が出る） | 再試行しない。プラグイン・UPMパッケージ・`com.unity.pipeline` の版の組み合わせが揃っていない。README の「版番号と対応する com.unity.pipeline」の表で版を揃えるようユーザーに伝える |
 | 4 | 内部の`unity cmd`呼び出し（`console clear`/`script recompile`/`editor status`のいずれか）が失敗したが、メインスレッド不要の `script recompile_status` は正常応答した（モーダルダイアログによるメインスレッドブロックの可能性が高い。**真のハングではない**） | ユーザーにダイアログを閉じてもらうよう依頼する（エディタの再起動は不要）。`.unity`/`.prefab`ファイルをUnity上で開いた状態のまま外部から変更すると、外部変更確認（Reload/Ignore等）のダイアログが表示されこの状態になることが多い（下記「既知の罠」参照） |
 
 **注意（実測済み、既知の罠も参照）**: コンパイル完了直後の1〜2秒間、ドメインリロード（アセンブリの
 再読み込み）によりUnity側のPipelineサーバーが一時的にダウンし、`unity cmd` が
-`No Unity Editor instances found with reachable Pipeline servers.` で失敗することがある。この
-スクリプトは内部でこれを一時的な切断として扱い、`script recompile_status` が完了状態を報告した後も
-`editor status` の `compiling`/`domainReloadInProgress` が2回連続でfalseになるまで `exit 0` にしない。
+`No Unity Editor instances found with reachable Pipeline servers.` などで失敗することがある。この
+スクリプトは内部でこれを一時的な切断として扱い、`editor status` の `codeLoadCount`（ドメインリロードの
+回数。リロードが終わって ready に戻った時点で1増える）が基準値より増え、`compiling`/`domainReloadInProgress`
+が両方falseになるまで `exit 0` にしない。コンパイルエラーのときはリロードが起きず回数が増えないので、
+回数据え置きのまま落ち着き、`script recompile_status` がエラーを報告した時点で終端とする（前回のエラーの
+結果を拾わないよう、エディタが落ち着いていることを条件にしている）。
 これにより「ドメインリロードが終わりきる前にテスト対象の解決へ進んでしまう」誤りと、「一時的な
 切断1回だけでハング扱いにしてしまう」誤りの両方を防いでいる。
 
 **自動リカバリ**: 上記の想定（一時切断は1〜2秒で解消する）を
-超える長さの切断が実運用で観測されている。そのためこのスクリプトは、script recompile_statusポーリング・
-editor status安定確認のいずれかが予算超過した場合、即 `exit 2` にせず (a) `editor status` を直接
+超える長さの切断が実運用で観測されている。そのためこのスクリプトは、完了待ちが予算超過した場合、
+即 `exit 2` にせず (a) `editor status` を直接
 確認し（この確認自体が一時切断に当たって誤判定しないよう、最大15秒は一時切断のみリトライする）、
-(b) 回復が裏取りできた場合に限り同じポーリングを新しい予算で1回だけやり直す（盲目的な延長では
+(b) 回復が裏取りできた場合に限り同じ完了待ちを新しい予算で1回だけやり直す（盲目的な延長では
 なく、確認できた場合のみの1回限りのリカバリ）。exit 2 に到達した場合は、この
 自動リカバリを試みても解消しなかったことを意味する（＝一時的な切断のリトライでは済まない、真の
 ハングの可能性が高い状態）。呼び出し元（コントローラー／`unity-test-runner`サブエージェント）が
@@ -515,7 +521,7 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
 - `console get` / `script recompile_status` が返す `compilationFailed` は、Unity のネイティブなコンパイル
   失敗フラグを**2秒以内にサンプリングできた場合にのみ**有効で、古ければ false に倒れる。
   サンプリングはメインスレッドで動くため、ドメインリロード中・ダイアログブロック中は止まる。
-  `ensure-compile-clean.sh` がドメインリロード完了の安定確認**後**に `script recompile_status` を
+  `ensure-compile-clean.sh` がドメインリロード完了の確認**後**に `script recompile_status` を
   読み直しているのはこのためで、この順序を崩すと「エラーがあるのに false」を拾いうる
 - `console clear` は sticky なコンパイルエラーを消さない（Unity の `LogEntries.Clear` が
   skip するため）。「コンソールをクリアしたのにエラーが残っている」のは正常な挙動であり、
