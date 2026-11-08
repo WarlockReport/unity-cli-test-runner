@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
 # unity-cli-test-runner スキルの「PlayModeテスト実行」を1コマンドにまとめる。
-# test status ベースライン取得 → test run --mode PlayMode --async_tests（コマンドレベル失敗も検知）→
+# test status ベースライン取得 → test run --mode PlayMode --async-tests（コマンドレベル失敗も検知）→
 # test status ポーリング → 完了確認 → ベースライン比較（同一filter連続実行時のstale検知）→
 # 結果に指定filterの手がかりが含まれるかの簡易整合性チェック（testName指定時のみ。異なるfilterへの取り違え検知）、を
 # 順に実行する。
 #
-# 使い方: run-playmode-test.sh <filter> <filter_type> [timeout(既定120)] [ポーリング予算秒数(既定90)]
+# 使い方: run-playmode-test.sh <filter> <filter-type> [timeout(既定120)] [ポーリング予算秒数(既定90)]
 #
 # 前提: `unity`（Pipelineサーバー経由で起動中エディタに接続するCLI）と `jq` がPATH上にあること。
 #
@@ -24,10 +24,10 @@
 #        - test statusの結果がtest run発行前のベースラインと文字列として完全一致（同一filterの
 #          連続実行で「前回の完了結果」を取り違えている疑い）。ポーリング中に完了状態かつ
 #          ベースラインと一致する応答を受け取った場合は即断せず、ポーリング予算内は完了とみなさず
-#          待ち続ける（async_tests発行直後のごく短いレース状態を許容するため）。予算を使い切っても
+#          待ち続ける（--async-tests 発行直後のごく短いレース状態を許容するため）。予算を使い切っても
 #          ベースラインと一致したままの場合にのみこのパターンでexit 3となる
 #        - test statusの結果に指定filterの手がかりが見当たらない（異なるfilterへの取り違えの疑い）。
-#          filter_type が testName のときだけ確認する（大文字小文字は区別しない）。assembly /
+#          filter-type が testName のときだけ確認する（大文字小文字は区別しない）。assembly /
 #          category では結果に filter 文字列が現れないため確認せず、このパターンにはならない
 #      後の2パターン（stale の疑い）ではUnityコンソールログで InvalidOperationException（TestResultCollector.RunFinished）
 #      の有無を確認すること。
@@ -49,7 +49,7 @@
 # 注意: PlayMode突入直後はドメインリロードが発生し、その1〜2秒間 unity cmd が
 # "No Unity Editor instances found with reachable Pipeline servers." で失敗することが
 # 実測で確認されている（_lib.sh参照）。test statusポーリング中にこれを検知した場合は
-# ハング扱いにせずポーリングを継続する。また、test run --async_tests の起動呼び出し
+# ハング扱いにせずポーリングを継続する。また、test run --async-tests の起動呼び出し
 # 自体がこの瞬断に当たることもあるため、こちらは run_unity_cmd_resilient（有限予算の
 # 単発リトライ）で吸収する。
 
@@ -60,7 +60,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/_lib.sh"
 
 if [ "$#" -lt 2 ]; then
-  echo "使い方: run-playmode-test.sh <filter> <filter_type> [timeout(既定120)] [ポーリング予算秒数(既定90)]" >&2
+  echo "使い方: run-playmode-test.sh <filter> <filter-type> [timeout(既定120)] [ポーリング予算秒数(既定90)]" >&2
   exit 2
 fi
 
@@ -93,8 +93,8 @@ else
   BASELINE=""
 fi
 
-echo "[2/4] test run --mode PlayMode --filter ${FILTER} --filter_type ${FILTER_TYPE} --async_tests" >&2
-RUN_TESTS_RAW="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" test run --mode PlayMode --filter "$FILTER" --filter_type "$FILTER_TYPE" --async_tests --json)" && rc=0 || rc=$?
+echo "[2/4] test run --mode PlayMode --filter ${FILTER} --filter-type ${FILTER_TYPE} --async-tests" >&2
+RUN_TESTS_RAW="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" test run --mode PlayMode --filter "$FILTER" --filter-type "$FILTER_TYPE" --async-tests --json)" && rc=0 || rc=$?
 exit_on_version_mismatch "$rc" "$RUN_TESTS_RAW"
 if [ "$rc" -ne 0 ]; then
   echo "test run のunity cmd呼び出し自体が失敗/タイムアウトしました（一時的なドメインリロード切断のリトライ予算超過を含む）。ハング・タイムアウト時の対応に従ってください。" >&2
@@ -148,7 +148,7 @@ while [ "$elapsed" -lt "$POLL_BUDGET_SECONDS" ]; do
       if [ -n "$BASELINE" ] && [ "$raw" = "$BASELINE" ]; then
         # 完了状態ではあるが内容がベースラインと同一 = test run発行前の古い結果を
         # まだ読んでいる可能性が高い。ここでは完了とみなさずポーリングを継続する
-        # （async_tests発行直後、Unity側の状態遷移がtest statusの応答に反映されるまでの
+        # （--async-tests 発行直後、Unity側の状態遷移がtest statusの応答に反映されるまでの
         # わずかな遅延で発生しうるレース状態への対策。budget内に新しい結果へ更新されれば
         # 下のbreakに進む。更新されないままbudgetを使い切った場合は、ループ終了後の
         # ベースライン比較チェックでexit 3として扱われる）
@@ -198,7 +198,7 @@ if [ "$FILTER_TYPE" = "testName" ]; then
     exit 3
   fi
 else
-  echo "filter_type=${FILTER_TYPE} は結果に filter 文字列が現れないため、手がかり確認を省略します（ベースライン比較のみ）。" >&2
+  echo "filter-type=${FILTER_TYPE} は結果に filter 文字列が現れないため、手がかり確認を省略します（ベースライン比較のみ）。" >&2
 fi
 
 # 完了判定は grep フォールバックでも成立しうるため、中身を取り出せる保証は無い。取り出せないまま

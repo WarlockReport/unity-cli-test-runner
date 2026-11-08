@@ -168,7 +168,7 @@ exit 2を受け取った時点で追加の直接確認を行う必要はない�
     対象クラス名が別クラス名の末尾に含まれるだけのケース（例: `FooTest` を検索したつもりが
     `BarFooTest` のメソッドまで一致してしまう）で候補数を誤カウントする
   - **ここで絞り込んだ `FullName` の一覧が、そのまま実行対象になる。** ステップ5では、この一覧を
-    完全一致で実行するバッチスクリプトに渡す。クラス名や `FullName` を `--filter_type testName` に
+    完全一致で実行するバッチスクリプトに渡す。クラス名や `FullName` を `--filter-type testName` に
     渡して実行し直してはならない（`testName` は部分一致のため、名前の先頭が同じ別クラスや別メソッドまで
     実行される。「既知の罠」参照）
   - **引数付きのケース（`[TestCase]` 等。`FullName` が `Ns.Class.Method(First,2)` のように末尾に
@@ -181,7 +181,7 @@ exit 2を受け取った時点で追加の直接確認を行う必要はない�
     （例: `jq -r '.data.result.Tests[].FullName | sub("\\([^()]*\\)$"; "")' | sort -u`）
   - 0件: 誤字や存在しないテスト名の可能性を報告する
   - 1件: そのまま次へ（ステップ5ではその1件の `FullName` をバッチスクリプトに渡す）
-  - 1アセンブリの全件に一致: ステップ5で `--filter_type assembly` を使う。ただし `assembly` も部分一致
+  - 1アセンブリの全件に一致: ステップ5で `--filter-type assembly` を使う。ただし `assembly` も部分一致
     のため、`test list` の `Assembly` に、対象のアセンブリ名を部分文字列として含む別のアセンブリ
     （例: `Foo.Tests` に対する `Foo.Tests.Extra`）があれば、`assembly` は使わず、そのアセンブリに属する
     `FullName` の一覧をバッチスクリプトに渡す
@@ -260,7 +260,7 @@ EditMode のバッチは同期応答で、生のレスポンスJSONを標準出�
 終了コード 1 で終わる。ステップ2に戻り、メソッドの `FullName` に置き換えて（重複を除いて）渡し直す。
 
 **単一アセンブリ全体の場合**（ステップ2で、名前を部分文字列として含む別アセンブリが無いと確認したとき
-のみ）: `--filter_type assembly` で実行する。直接 `unity cmd test run` を呼んではならない（「禁止事項」参照）。
+のみ）: `--filter-type assembly` で実行する。直接 `unity cmd test run` を呼んではならない（「禁止事項」参照）。
 
 ```
 OUT="$(mktemp -t unity-test)"
@@ -270,7 +270,7 @@ ${CLAUDE_SKILL_DIR}/scripts/run-editmode-test.sh <アセンブリ名> assembly [
 ${CLAUDE_SKILL_DIR}/scripts/run-playmode-test.sh <アセンブリ名> assembly [timeout] [ポーリング予算秒数] > "$OUT"
 ```
 
-`run-playmode-test.sh` は `test run --async_tests` の実行から `test status` の完了確認・結果の簡易整合性
+`run-playmode-test.sh` は `test run --async-tests` の実行から `test status` の完了確認・結果の簡易整合性
 チェックまでを1コマンドにまとめる（詳細は同スクリプトのヘッダコメント参照）。標準出力の最終結果
 JSON（`test status`由来。`status`/`duration`/`summary`/`results`を含む。EditModeの`test run`直接
 呼び出しとはキーの大文字小文字が異なる点に注意。詳細はステップ6参照）をステップ6の結果確認に使う。
@@ -417,9 +417,9 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
   `package status` など `status` を名前に持つコマンドの候補が返るだけ）。起動中エディタの一覧（port）を見るのは `cmd` を経由しない `unity status`。
   接続済みエディタ個別のコンパイル状況（`compiling`/`domainReloadInProgress`等）を確認したい
   場合は `unity cmd editor status --timeout 30` を使う
-- `--filter_type` に指定できる値は `testName` / `assembly` / `category` の3つのみ。`FullName` や
+- `--filter-type` に指定できる値は `testName` / `assembly` / `category` の3つのみ。`FullName` や
   `class` といった文字列は**存在せずエラーになる**（`FullName` は実地検証済み: `Invalid filterType 'FullName'`）
-- **`--filter_type testName` と `assembly` は、大文字小文字を区別しない部分一致で照合される**
+- **`--filter-type testName` と `assembly` は、大文字小文字を区別しない部分一致で照合される**
   （`com.unity.pipeline` 0.8.0-exp.1 のソースと実測で確認、2026-10-15。`testName` は各テストの
   `FullName`、`assembly` はアセンブリ名に対して部分文字列を含むかを見る）。そのため、クラスの完全名
   `Ns.FooTests` を渡しても `Ns.FooTestsExtra` のメソッドまで、単一テストの完全名 `Ns.FooTests.Run` を
@@ -428,7 +428,7 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
   `test list` で得た完全一致の `FullName` の一覧を `wr.testrunner run_tests_batch_editmode`/`wr.testrunner run_tests_batch_playmode`
   （`Filter.testNames` 配列に完全一致名を直接詰める専用コマンド。実測で完全一致を確認済み）に
   スクリプト経由で渡して行う
-- `--filter_type testName` に**カンマ区切りで複数の完全名を渡すと、エラーにならず `success:true` のまま
+- `--filter-type testName` に**カンマ区切りで複数の完全名を渡すと、エラーにならず `success:true` のまま
   `Summary.Total:0` で静かに空振りする**（実地検証済み。部分一致の照合でカンマを含む `FullName` が
   存在しないため）。複数の完全名の集合はバッチスクリプトで実行する
 - 引数付きのケース（`[TestCase]` 等）の `FullName` は、NUnit が引数をカンマ区切りで名前に入れる
@@ -437,15 +437,15 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
   実行されないまま他のテストの結果が返る（実地検証済み、2026-10-25）。これを防ぐため、バッチスクリプトは
   括弧を含む名前を受け取ると実行せずに終了コード 1 で終わる。メソッドの `FullName`（`Ns.Class.Method`）を
   渡せば、そのメソッドの全ケースが完全一致で実行される（ステップ2参照）
-- `--filter_type category` は、カテゴリ名の完全一致（大文字小文字を区別しない）で照合され、**含めるカテゴリを
+- `--filter-type category` は、カテゴリ名の完全一致（大文字小文字を区別しない）で照合され、**含めるカテゴリを
   1 つしか指定できない**（除く指定・複数指定・アセンブリとの組み合わせはできない）（実地検証済み、2026-11-03）。
   カテゴリで絞るときは、含める・除くを複数組み合わせられ、アセンブリとも組み合わせられる絞り込み実行スクリプト
   （`run-tests-filtered-editmode.sh` / `run-tests-filtered-playmode.sh`）を使う
 - `test list` の `Categories` は、カテゴリの無いテストでは `["Uncategorized"]`、クラスに付けたカテゴリは
   配下の各メソッドの `Categories` に現れる（実地検証済み、2026-11-03）
 - 絞り込み実行スクリプトの照合（実地検証済み、2026-11-03）: カテゴリは**大文字小文字を区別する**完全一致
-  （`Slow` で `SlowView` も `slow` も当たらない。`--filter_type category` と区別の有無が異なる点に注意）。
-  アセンブリは大文字小文字を区別しない完全一致（`--filter_type assembly` と違い、名前を部分文字列として含む
+  （`Slow` で `SlowView` も `slow` も当たらない。`--filter-type category` と区別の有無が異なる点に注意）。
+  アセンブリは大文字小文字を区別しない完全一致（`--filter-type assembly` と違い、名前を部分文字列として含む
   別アセンブリを巻き込まない）。除く名前はクラス・メソッド・名前空間の `FullName` の完全一致で、そのノードの
   配下がすべて除かれる。スクリプトは実行前に `test list` で名前の実在を確かめるが、そのとき除く名前は
   「`FullName` と完全一致するか、名前の直後が `.` か `(` で続くテストがある」ものを実在とみなす
@@ -505,12 +505,12 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
 - **`get_console_logs` は `com.unity.pipeline` 0.7.0-exp.1 以降に存在しない**（ソースから削除済み。
   CHANGELOG にのみ残る）。0.6 向けに書かれた手順をそのまま流用すると `Command Not Found` で
   失敗する。代わりに `console get`（引数: `--tail`（既定100）/ `--level log|warn|error`（**下限**
-  severity）/ `--since` / `--since_session`）を使う。`console get` の `entries[]` は `logType` で
+  severity）/ `--since` / `--since-session`）を使う。`console get` の `entries[]` は `logType` で
   Unity の正確な LogType（Exception/Assert の区別を含む）を持つ
 - `console get` は Editor コンソール自身のストアから **backfill** する。キャプチャ開始前に記録された
   コンパイルエラーは sticky エントリとして残り、次のコンパイル完了まで消えないため、`console get`
   の結果には「今回の実行で出たわけではないエラー」が混ざりうる。また cursor まわりに
-  `since` / `since_session` / `reset` / `dropped` があり、過去セッションの cursor を渡すと
+  `since` / `since-session` / `reset` / `dropped` があり、過去セッションの cursor を渡すと
   空ではなく `reset=true` / `dropped=true` 付きの末尾が返る。件数だけを見て判断しない
 - `console get` / `script recompile_status` が返す `compilationFailed` は、Unity のネイティブなコンパイル
   失敗フラグを**2秒以内にサンプリングできた場合にのみ**有効で、古ければ false に倒れる。
@@ -535,8 +535,8 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
   ディスパッチするのを待つ
 - タイムアウト・ハング時に原因（モーダルダイアログ等）を潰さないまま盲目的に再試行しない
   （1回で見切ってユーザーに確認を依頼する。原因解消を確認した後の実行はこの禁止に当たらない）
-- `--filter_type testName` にカンマ区切りの複数値を渡さない
-- 単一テスト・クラス一括の実行に `--filter_type testName` を使わない（部分一致で対象外のテストまで
+- `--filter-type testName` にカンマ区切りの複数値を渡さない
+- 単一テスト・クラス一括の実行に `--filter-type testName` を使わない（部分一致で対象外のテストまで
   実行される）。ステップ2で得た `FullName` の一覧をバッチスクリプトに渡す
 - EditModeのアセンブリ全体の実行は必ず `scripts/run-editmode-test.sh` 経由で行う。`unity cmd test run
   --mode EditMode` を直接（スクリプトを介さず）呼ばない
@@ -552,7 +552,7 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
   stale 検知が働かないため）
 - アセンブリから一部を除いて流すために、`test list` から残りの `FullName` の一覧を組み立ててバッチスクリプトに
   渡さない。絞り込み実行スクリプトに除く名前を渡す
-- カテゴリで絞るときに `--filter_type category` を使わない。絞り込み実行スクリプトを使う
+- カテゴリで絞るときに `--filter-type category` を使わない。絞り込み実行スクリプトを使う
 - 絞り込み実行スクリプトが終了コード 1（名前が見つからない）を返したときに、名前を推測で直して再実行しない
 - テスト結果の報告を自然語で組み立てる（件数・テスト名・エラーメッセージの言い換え、要約、
   整形し直し）。必ず `scripts/summarize-test-result.sh` の出力を逐語で貼る
