@@ -357,45 +357,6 @@ report_compile_failure_and_exit() {
   exit 1
 }
 
-# script recompile / script recompile_status の `.data.result` から1フィールドを読む。
-# 中身の取り出し（二重エンコード文字列／ネイティブJSONの両対応）は extract_result_payload（_lib.sh）が行う。
-# jq の `//` はfalseも「無い」と扱ってしまい failed=false を空文字列に潰すので、
-# 存在確認には has() を使う（jq 1.7.1 で実測）。
-# 取り出せない場合は空文字列を返し、呼び出し元が「判定不能」として扱えるようにする。
-read_result_field() {
-  local raw="$1" field="$2" payload
-  payload="$(extract_result_payload "$raw")" || return 0
-  echo "$payload" | jq -r --arg f "$field" '
-    if type == "object" and has($f) then .[$f] else empty end
-  ' 2>/dev/null || true
-}
-
-# コンパイルエラーが確定した時点で、console get から詳細を取得して exit 1 する（戻らない）。
-#   $1 … 判定の根拠にした生JSON（console get が取れなかった場合はこちらを報告に回す）
-#   $2 … 判定の根拠を1行で表したラベル
-# 判定の一次情報は script recompile_status なので、console get の取得に失敗しても、entries が空でも、
-# 判定は覆さない。sticky なコンパイルエラーは console clear で消えず、
-# backfill のタイミング次第で詳細が欠けることがあるため、ここで成功に倒すと誤報告になる。
-report_compile_failure_and_exit() {
-  local evidence_raw="$1" evidence_label="$2"
-  echo "コンパイルエラーを検出しました（${evidence_label}）。console get から詳細を取得します。" >&2
-
-  local console_raw entry_count
-  if console_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" console get --level error --tail 20 --json)"; then
-    entry_count="$(echo "$console_raw" | jq -r 'if (.data.result.entries | type) == "array" then (.data.result.entries | length) else "unknown" end' 2>/dev/null || true)"
-    if [ "$entry_count" = "0" ]; then
-      echo "  console get のエラーエントリは0件でした（sticky/backfillの都合で詳細が欠けることがあります）。判定は script recompile_status に基づくため、成功にはしません。" >&2
-    fi
-    echo "コンパイルエラーを検出しました（${evidence_label}）。テスト対象の解決へ進まず、以下を報告してください:"
-    echo "$console_raw"
-  else
-    echo "  console get からの詳細取得に失敗しました。判定は script recompile_status に基づくため覆りません。" >&2
-    echo "コンパイルエラーを検出しました（${evidence_label}）。console get からの詳細取得には失敗したため、判定の根拠となった応答をそのまま報告してください:"
-    echo "$evidence_raw"
-  fi
-  exit 1
-}
-
 echo "[1/5] console clear" >&2
 clear_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" console clear)" && rc=0 || rc=$?
 exit_on_version_mismatch "$rc" "$clear_raw"
