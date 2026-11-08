@@ -334,7 +334,7 @@ switch_pipeline() {
   echo "Pipeline を ${version} へ一時的に差し替えます" >&2
   # ここから先は失敗しても manifest を戻す必要がある
   PIPELINE_SWITCHED=1
-  if ! run_saved "pipeline-switch" unity cmd package add --identifier "com.unity.pipeline@${version}" \
+  if ! run_saved "pipeline-switch" unity cmd package add --name "com.unity.pipeline@${version}" \
       --confirm true --wait true --json --timeout 300 \
     || [ "$(jq -r '.data.result.status // empty' "${OUT_DIR}/pipeline-switch.out" 2>/dev/null)" != "completed" ]; then
     echo "com.unity.pipeline@${version} への差し替えに失敗しました（${OUT_DIR}/pipeline-switch.out を参照）。" >&2
