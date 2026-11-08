@@ -31,7 +31,7 @@
 #          category では結果に filter 文字列が現れないため確認せず、このパターンにはならない
 #      後の2パターン（stale の疑い）ではUnityコンソールログで InvalidOperationException（TestResultCollector.RunFinished）
 #      の有無を確認すること。
-#      また、unity cmd がコマンドを見つけられなかった場合（プラグイン・UPMパッケージ・com.unity.pipeline の
+#      また、unity cmd がコマンドまたは引数を見つけられなかった場合（プラグイン・UPMパッケージ・com.unity.pipeline の
 #      版の組み合わせが揃っていない疑い。標準エラーに診断が出る。再試行せず版を揃えてもらう）もこの終了コードになる
 #
 # 注意: test status（0.8 以前の名前は test_status）--json のレスポンス構造は実地検証済み（2026-08-11）。トップレベルは

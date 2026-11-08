@@ -22,7 +22,7 @@
 #      wr.testrunner run_tests_batch_playmode がUnity側で受理されなかった場合
 #   3  完了は検知したが結果がstaleと疑われる（ベースライン完全一致、またはfull-namesのいずれかの
 #      手がかりが結果に見当たらない）。
-#      また、unity cmd がコマンドを見つけられなかった場合（プラグイン・UPMパッケージ・com.unity.pipeline の
+#      また、unity cmd がコマンドまたは引数を見つけられなかった場合（プラグイン・UPMパッケージ・com.unity.pipeline の
 #      版の組み合わせが揃っていない疑い。標準エラーに診断が出る。再試行せず版を揃えてもらう）もこの終了コードになる
 #
 # 注意: PlayMode突入直後はドメインリロードが発生し、その1〜2秒間 unity cmd が

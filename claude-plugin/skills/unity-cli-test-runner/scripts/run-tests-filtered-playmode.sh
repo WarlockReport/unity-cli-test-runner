@@ -24,7 +24,7 @@
 #   2  使い方の誤り（未知の引数・値の欠落）、ハング・タイムアウト（ポーリング予算超過、`unity cmd`呼び出し自体の
 #      失敗を含む）、または wr.testrunner run_tests_filtered_playmode がUnity側で受理されなかった
 #   3  完了は検知したが結果がstaleと疑われる（完了ステータスの requestId が起動応答の RequestId と一致しない）。
-#      また、unity cmd がコマンドを見つけられなかった場合・起動応答に RequestId が無い場合（プラグイン・UPMパッケージ・
+#      また、unity cmd がコマンドまたは引数を見つけられなかった場合・起動応答に RequestId が無い場合（プラグイン・UPMパッケージ・
 #      com.unity.pipeline の版の組み合わせが揃っていない疑い。再試行せず版を揃えてもらう）、test list の応答が
 #      想定外の形の場合もこの終了コードになる
 #

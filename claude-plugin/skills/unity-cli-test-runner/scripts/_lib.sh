@@ -29,7 +29,7 @@
 #    （ジョブの場合は "Too Many Queued Jobs"）を返す。retryable は付かないが、先行するコマンドが
 #    捌ければ解消するのでリトライしてよい。
 #
-# 逆に「コマンドが見つからない」応答（Command Not Found / No command named ...）は一時的失敗ではない。
+# 逆に「コマンドまたは引数が見つからない」応答（Command Not Found / No command named ... / has no parameter --...）は一時的失敗ではない。
 # プラグイン・UPMパッケージ・com.unity.pipeline の版の組み合わせが揃っていないときに起き、
 # リトライしても解消しない（is_command_not_found で判定し、一時的失敗の判定より先に見る）。
 #
@@ -52,20 +52,23 @@ is_transient_busy() {
   echo "$raw" | grep -qE '"retryable"[[:space:]]*:[[:space:]]*true|"status"[[:space:]]*:[[:space:]]*"busy"|503 Service Unavailable|Server Busy|429 Too Many Requests|Too Many Queued (Commands|Jobs)'
 }
 
-# 「コマンドが見つからない」応答かどうか。0.9 は旧名を "No command named '<名前>' is available. ..."
+# 「コマンドまたは引数が見つからない」応答かどうか。0.9 以降は旧名を "No command named '<名前>' is available. ..."
 # で拒否し、0.9 未満のサーバーは 2 語のコマンドを "Command Not Found" で拒否する。
+# 0.10 以降は引数名を宣言名との完全一致で照合し、名前の合わない引数を "<グループ> has no parameter --<名前>"
+# で拒否する（引数名の kebab-case 化をまたいだ版の組み合わせで起きる）。同じ INVALID_COMMAND_ARGS でも
+# 値の誤りは版のずれではないため、コード全体ではなく「その名前の引数が無い」ことを示す文言に限って見る。
 is_command_not_found() {
   local raw="$1"
-  echo "$raw" | grep -qE 'Command Not Found|No command named'
+  echo "$raw" | grep -qE 'Command Not Found|No command named|has no parameter --'
 }
 
-# run_unity_cmd_resilient の戻り値が 3（コマンドが見つからない）なら、版の組み合わせのずれとして
+# run_unity_cmd_resilient の戻り値が 3（コマンドまたは引数が見つからない）なら、版の組み合わせのずれとして
 # 診断を標準エラーに、生の応答を標準出力に出して exit 3 する（戻らない）。それ以外の戻り値では何もしない。
 # 使い方: exit_on_version_mismatch <戻り値> <応答（標準出力）>
 exit_on_version_mismatch() {
   local rc="$1" raw="$2"
   [ "$rc" = "3" ] || return 0
-  echo "unity cmd がコマンドを見つけられませんでした。プラグイン・UPMパッケージ（com.warlockreport.unity-cli-test-runner）・com.unity.pipeline の版の組み合わせが揃っていない可能性が高いです。" >&2
+  echo "unity cmd がコマンドまたは引数を見つけられませんでした。プラグイン・UPMパッケージ（com.warlockreport.unity-cli-test-runner）・com.unity.pipeline の版の組み合わせが揃っていない可能性が高いです。" >&2
   echo "  リトライでは解消しません。README の「版番号と対応する com.unity.pipeline」の表で、3つの版を揃えてもらってください。" >&2
   report_unity_cmd_failure "$raw"
   echo "$raw"
@@ -179,7 +182,7 @@ report_unity_cmd_failure() {
 #   0  成功
 #   1  一時的ではない失敗（生JSONは標準出力に出す。呼び出し元で内容を確認すること）
 #   2  一時的失敗のままリトライ予算を使い切った（真のハング、またはユーザー操作待ちのダイアログ）
-#   3  コマンドが見つからない（版の組み合わせのずれ。生JSONは標準出力に出す。exit_on_version_mismatch に渡す）
+#   3  コマンドまたは引数が見つからない（版の組み合わせのずれ。生JSONは標準出力に出す。exit_on_version_mismatch に渡す）
 #
 # 使い方: run_unity_cmd_resilient <timeout秒> <リトライ予算秒> <unity cmdへの引数...>
 run_unity_cmd_resilient() {
