@@ -67,9 +67,11 @@
 # - そのため「回数が基準値より増え、compiling/domainReloadInProgress が両方false」を1回確かめれば
 #   リロードを越えたと言える（安定確認を2回重ねる必要は無い）
 # - コンパイルエラーのときはリロードが起きず、回数は増えない。script recompile_status が
-#   failed:true / compilationFailed:true を返す。ただし直前のコンパイルエラーの結果は、新しいコンパイルが
-#   終わるまで script recompile_status に残りうる。前回の結果を拾って「直したのにエラー」と報告しないよう、
-#   エラーと見なすのは editor status が落ち着いていて回数が基準値のままのときに限る
+#   status:"completed"・failed:true を返す。一方 compilationFailed（Unity のネイティブなフラグ）は、エラーを
+#   直したコンパイルが終わってもリロードで消えるまで true のまま返る（Pipeline 0.10 のソースのコメントで確認）。
+#   コンパイル完了からリロード開始までの隙間でこれを拾って「直したのにエラー」と報告しないよう、完了待ちで
+#   エラーと見なすのは editor status が落ち着いていて回数が基準値のまま、かつ status が completed / failed で
+#   failed:true のときに限る（script recompile は status を同期で triggered に書き直すので、これは必ず今回の結果）
 # - Auto Refresh などでエディタ側のコンパイル・リロードがすでに走っているときに基準値を取ると、
 #   その進行中のリロードで回数が増えただけで「今回のリロードが終わった」と取り違える。基準値は
 #   compiling/domainReloadInProgress が両方falseのときに取る。script recompile が up_to_date でも、
@@ -224,7 +226,7 @@ take_baseline_code_load_count() {
 #         3=ダイアログブロックの可能性が高い（真のハングとは区別して報告する）
 # 基準値はグローバルの BASELINE_CODE_LOAD_COUNT を使う（retry_once_if_recovered に予算だけ渡して呼べる形）。
 poll_compile_done() {
-  local budget="$1" start="$SECONDS" rc failed compilation_failed last_state=""
+  local budget="$1" start="$SECONDS" rc failed recompile_state last_state=""
   while :; do
     read_editor_status_once && rc=0 || rc=$?
     case "$rc" in
@@ -235,17 +237,21 @@ poll_compile_done() {
             return 0
           fi
           # 回数が据え置きのまま落ち着いている。コンパイルエラーならリロードは起きないので、
-          # ここで script recompile_status を見る（メインスレッド不要）。回数が増えていないことを
-          # 条件にしているので、前回のコンパイルエラーの結果が残っていても、新しいコンパイルの
-          # リロード後にそれを拾うことはない
+          # ここで script recompile_status を見る（メインスレッド不要）。エラーとみなすのは、今回の
+          # コンパイルが書いた結果（status が completed / failed で failed==true）に限る。
+          # script recompile はステータスを同期で triggered に書き直してからコンパイルを始めるので、
+          # この組み合わせは必ず今回のコンパイルの結果になる。一方 compilationFailed は Unity の
+          # ネイティブなフラグで、エラーを直したコンパイルが終わってもリロードで消えるまでの間は true の
+          # まま返る。コンパイル完了からリロード開始までの隙間でこれを拾うと、直したのにエラーと
+          # 報告してしまうため、ここでは見ない（最終判定はリロード後のステップ5で行う）
           if run_unity_cmd_capture script recompile_status --json --timeout "$CLI_TIMEOUT"; then
             failed="$(read_result_field "$UNITY_CMD_OUT" failed)"
-            compilation_failed="$(read_result_field "$UNITY_CMD_OUT" compilationFailed)"
-            if [ "$failed" = "true" ] || [ "$compilation_failed" = "true" ]; then
+            recompile_state="$(read_result_field "$UNITY_CMD_OUT" status)"
+            if [ "$failed" = "true" ] && { [ "$recompile_state" = "completed" ] || [ "$recompile_state" = "failed" ]; }; then
               echo "  ドメインリロードが起きないまま落ち着き、script recompile_status がコンパイルエラーを報告しました。" >&2
               return 0
             fi
-            last_state="回数据え置き（codeLoadCount=${ES_COUNT}）・script recompile_status=$(read_result_field "$UNITY_CMD_OUT" status)"
+            last_state="回数据え置き（codeLoadCount=${ES_COUNT}）・script recompile_status=${recompile_state:-不明}"
           elif is_transient_failure "$UNITY_CMD_DIAG"; then
             echo "  一時的失敗を検知（ドメインリロード中、またはサーバーbusy）。待ち続けます。" >&2
           else

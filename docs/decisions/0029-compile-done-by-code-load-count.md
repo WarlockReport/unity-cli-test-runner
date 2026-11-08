@@ -43,9 +43,12 @@ TestProject（Unity 6000.3.25f1、`unity` CLI 1.0.0-beta.13）で実測した。
 4. 完了待ち。`editor status` で「回数が基準値より増え、`compiling` / `domainReloadInProgress` が両方 false」を 1 回確かめたら完了
    （2 回連続の確認はしない。回数はリロードが終わった時点で増えるので、回数が増えたこと自体がリロードを越えた証拠になり、
 ADR-0007 の (b) のレース〔リロード前の一瞬を落ち着いたと取り違える〕は起きない）。回数据え置きのまま落ち着いているときだけ
-   `script recompile_status` を読み、`failed` / `compilationFailed` が true なら終端（コンパイルエラー。リロードは起きない）。
-   前回のコンパイルエラーの結果が `script recompile_status` に残っていても、エディタが落ち着いていて回数据え置きの
-   ときに限るので、新しいコンパイルの途中でそれを拾わない。一時的失敗は吸収し、ダイアログ判定（終了コード 4）は従来どおり
+   `script recompile_status` を読み、`status` が `completed` / `failed` で `failed` が true なら終端（コンパイルエラー。リロードは起きない）。
+   `script recompile` はステータスファイルを同期で `triggered` に書き直してからコンパイルを始める（Pipeline 0.10 の
+   `RecompileCommand.cs`）ので、この組み合わせは必ず今回のコンパイルの結果になる。`compilationFailed` はここでは見ない。
+   これは Unity のネイティブなフラグで、エラーを直したコンパイルが終わってもリロードで消えるまでの間は true のまま返る
+   （同ソースのコメントに明記）。コンパイル完了からリロード開始までの隙間でこれを拾うと「直したのにエラー」と報告してしまう
+   （最終レビューで指摘され、モックで再現して直した）。一時的失敗は吸収し、ダイアログ判定（終了コード 4）は従来どおり
 5. 予算超過時は従来の自動リカバリ（`editor status` で ready を裏取りできた場合に限り 1 回だけやり直す）
 6. `script recompile_status` を読み直して判定し、エラーなら `console get` で詳細を出す（従来どおり）
 
