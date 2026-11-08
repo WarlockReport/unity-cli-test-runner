@@ -50,4 +50,14 @@ Accepted (2026-11-08)
   版の組み合わせのずれを含む）は変わらない
 - 範囲外の `--filter-type` の値は従来どおり終了コード 0 で返り、`.data.result.success:false` を読む側で扱う（今回は変えていない）
 
-（実地検証の結果は Task 完了後に追記する）
+### 実地検証（2026-11-08、TestProject）
+
+- `e2e/run-all.sh`: 一致 59 件 / 不一致 0 件（0.9 対応版のままでは一致 43 / 不一致 7 だった `test run` 系の照合を含む。
+  PlayMode の `test status` は 0.10 で結果の集め方が変わったが、`7-playmode-class` / `7-playmode-assembly-ns-mismatch` は一致し、
+  同じ filter での PlayMode の連続実行 2 回も exit 0 で、stale 検知・取り違え検知は誤発火しなかった）
+- `e2e/run-all.sh --pipeline 0.10.0-exp.1`: 一致 59 件 / 不一致 0 件、後片付け成功。0.10 では `package add` の引数が
+  `--identifier` ではなく `--name` であり（`package has no parameter --identifier.` で拒否される）、`e2e/run-all.sh` もこれに合わせた
+- 版のずれ: Pipeline を 0.9.1-exp.1 に戻した TestProject で、`ensure-compile-clean.sh`（`codeLoadCount` が無い）、
+  `run-tests-batch-editmode.sh`（自前コマンドがコンパイル対象から外れる）、`run-editmode-test.sh`
+  （`test has no parameter --filter-type. Did you mean --filter_type?`）がいずれも exit 3 と版を揃える案内を返した。
+  0.10.0-exp.1 に戻すと `ensure-compile-clean.sh` は exit 0
