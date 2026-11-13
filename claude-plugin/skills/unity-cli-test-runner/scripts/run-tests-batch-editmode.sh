@@ -11,16 +11,17 @@
 # 前提: `unity`（Pipelineサーバー経由で起動中エディタに接続するCLI）と `jq` がPATH上にあること。
 #
 # 終了コード:
-#   0  wr.testrunner run_tests_batch_editmode のunity cmd呼び出しに成功。標準出力のJSON（Summary.Total/Passed/
-#      Failed、Results[].FullName/Status/Message/StackTrace を含む。SKILL.mdステップ6参照）を読み、
-#      通常の結果報告に進んでよい
+#   0  結果確定（PASS/FAILは問わない）。標準出力の JSON（status/duration/summary{total,passed,failed,skipped,inconclusive}/
+#      results[]{fullName,status,duration,message,stackTrace}。SKILL.mdステップ6参照）を読み、通常の結果報告に進んでよい。
+#      要求した名前の一部が見つからなかった・0 件だった場合も 0（標準エラーにその旨を出す）
 #   1  引数付きケースの FullName（括弧を含む名前。例: Ns.Class.Method(First,2)）が指定された。実行はしない。
 #      名前の中のカンマで区切りが割れるため。引数部分を外したメソッドの FullName を重複を除いて渡し直す
 #      （そのメソッドの全ケースが実行される）
-#   2  ハング・タイムアウト（一時的切断のリトライ予算超過を含む、`unity cmd`呼び出し自体の失敗）。
+#   2  ハング・タイムアウト（一時的切断のリトライ予算超過を含む、`unity cmd`呼び出し自体の失敗）、
+#      Unity 側で受理されなかった（テスト実行のタイムアウトを含む）、またはモーダルダイアログ。
 #      スキルの「ハング・タイムアウト時の対応」に従う
-#   3  unity cmd がコマンドまたは引数を見つけられなかった（プラグイン・UPMパッケージ・com.unity.pipeline の版の組み合わせが
-#      揃っていない疑い。標準エラーに診断が出る。再試行せず版を揃えてもらう）
+#   3  版の組み合わせのずれ（コマンドまたは引数が見つからない、unity CLI が古い、UPM パッケージが旧版で応答が PascalCase。
+#      標準エラーに診断が出る。再試行せず版を揃えてもらう）、または応答が想定外の形
 
 set -euo pipefail
 
@@ -40,12 +41,5 @@ ONESHOT_RETRY_BUDGET_SECONDS=15
 
 echo "[1/1] wr.testrunner run_tests_batch_editmode --full-names ${FULL_NAMES}" >&2
 raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" wr.testrunner run_tests_batch_editmode --full-names "$FULL_NAMES" --json)" && rc=0 || rc=$?
-exit_on_version_mismatch "$rc" "$raw"
-if [ "$rc" -ne 0 ]; then
-  echo "wr.testrunner run_tests_batch_editmode のunity cmd呼び出し自体が失敗/タイムアウトしました（一時的なドメインリロード切断のリトライ予算超過を含む）。ハング・タイムアウト時の対応に従ってください。" >&2
-  report_unity_cmd_failure "$raw"
-  exit 2
-fi
-
-echo "$raw"
-exit 0
+finish_own_editmode_result "$rc" "$raw" run-tests-batch-editmode.sh "wr.testrunner run_tests_batch_editmode" \
+  "指定した完全名のうち実行されたテストが 0 件でした。名前の綴りを確かめてください。"

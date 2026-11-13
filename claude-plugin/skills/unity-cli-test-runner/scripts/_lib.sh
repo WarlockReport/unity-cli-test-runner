@@ -569,3 +569,152 @@ run_pipeline_test_async() {
   printf '%s\n' "$payload"
   exit 0
 }
+
+# ---- 自前コマンド（wr.testrunner）の応答の扱い ----
+# 自前コマンドの応答は、Pipeline 本体の test status と同じ camelCase の形
+# {status, duration, summary:{total,passed,failed,skipped,inconclusive}, results:[{fullName,status,duration,message,stackTrace}]}
+# に、success・error・message・mode・filterApplied・requestId が加わったもの。success:false のとき unity CLI は終了コード 6 を返すが、
+# 結果は標準出力に出ているので中身で判断する。
+
+# 自前の EditMode 同期コマンド（run_tests_batch_editmode / run_tests_filtered_editmode）の応答を確かめ、
+# 結果を標準出力に出して exit する（戻らない）。
+#   0 … 結果確定（0 件のときは <0件のときの説明> と応答の message を標準エラーに出す）
+#   2 … 呼び出し自体の失敗、Unity 側で受理されなかった（success が true でない。実行のタイムアウトを含む）、ダイアログ
+#   3 … 版のずれ（旧版 UPM パッケージの PascalCase 応答を含む）、想定外の形
+# 使い方: finish_own_editmode_result <run_unity_cmd_resilient の戻り値> <応答> <スクリプト名> <コマンド名> <0件のときの説明>
+finish_own_editmode_result() {
+  local rc="$1" raw="$2" script_name="$3" command_label="$4" zero_note="$5" payload error_message message
+  exit_on_version_mismatch "$rc" "$raw"
+  case "$rc" in
+    0|1) ;;
+    4)
+      echo "${script_name}: モーダルダイアログがエディタを塞いでいます（unity CLI がダイアログを報告しました。ハングではありません）。Unityエディタを確認し、開いているダイアログを閉じてもらってください。" >&2
+      report_unity_cmd_failure "$raw"
+      exit 2
+      ;;
+    *)
+      echo "${script_name}: ${command_label} のunity cmd呼び出し自体が失敗/タイムアウトしました（一時的なドメインリロード切断のリトライ予算超過を含む）。ハング・タイムアウト時の対応に従ってください。" >&2
+      report_unity_cmd_failure "$raw"
+      exit 2
+      ;;
+  esac
+  if ! payload="$(extract_result_payload "$raw")"; then
+    if [ "$rc" -eq 0 ]; then
+      echo "${script_name}: ${command_label} の応答を結果として読めませんでした（想定外の形）。" >&2
+      report_unity_cmd_failure "$raw"
+      exit 3
+    fi
+    echo "${script_name}: ${command_label} のunity cmd呼び出し自体が失敗しました。ハング・タイムアウト時の対応に従ってください。" >&2
+    report_unity_cmd_failure "$raw"
+    exit 2
+  fi
+  if is_legacy_upm_payload "$payload"; then
+    exit_on_version_mismatch 3 "$payload"
+  fi
+  if [ "$(printf '%s' "$payload" | jq -r '.success // empty' 2>/dev/null || true)" != "true" ]; then
+    error_message="$(printf '%s' "$payload" | jq -r '.error // .message // "(no error message)"' 2>/dev/null || echo "(no error message)")"
+    echo "${script_name}: ${command_label} がUnity側で受理されませんでした（success が true ではありません）: ${error_message}" >&2
+    exit 2
+  fi
+  if [ "$(printf '%s' "$payload" | jq -r '.summary.total // empty' 2>/dev/null || true)" = "0" ]; then
+    message="$(printf '%s' "$payload" | jq -r '.message // empty' 2>/dev/null || true)"
+    echo "${zero_note}${message:+（${message}）}" >&2
+  fi
+  printf '%s\n' "$payload"
+  exit 0
+}
+
+# 自前の PlayMode 起動コマンド（run_tests_batch_playmode / run_tests_filtered_playmode）の応答を確かめ、
+# 受理されていれば OWN_START_PAYLOAD に入れて戻る。受理されていなければ exit する（2 = 失敗・拒否・ダイアログ、3 = 版のずれ）。
+# 使い方: accept_own_playmode_start <run_unity_cmd_resilient の戻り値> <応答> <スクリプト名> <コマンド名>
+OWN_START_PAYLOAD=""
+accept_own_playmode_start() {
+  local rc="$1" raw="$2" script_name="$3" command_label="$4" error_message
+  exit_on_version_mismatch "$rc" "$raw"
+  if [ "$rc" -eq 4 ]; then
+    echo "${script_name}: モーダルダイアログがエディタを塞いでいます（unity CLI がダイアログを報告しました。ハングではありません）。Unityエディタを確認し、開いているダイアログを閉じてもらってください。" >&2
+    report_unity_cmd_failure "$raw"
+    exit 2
+  fi
+  if ! OWN_START_PAYLOAD="$(extract_result_payload "$raw")"; then
+    echo "${script_name}: ${command_label} のunity cmd呼び出し自体が失敗/タイムアウトしました（一時的なドメインリロード切断のリトライ予算超過を含む）。ハング・タイムアウト時の対応に従ってください。" >&2
+    report_unity_cmd_failure "$raw"
+    exit 2
+  fi
+  if is_legacy_upm_payload "$OWN_START_PAYLOAD"; then
+    exit_on_version_mismatch 3 "$OWN_START_PAYLOAD"
+  fi
+  if [ "$(printf '%s' "$OWN_START_PAYLOAD" | jq -r '.success // empty' 2>/dev/null || true)" != "true" ]; then
+    error_message="$(printf '%s' "$OWN_START_PAYLOAD" | jq -r '.error // .message // "(no error message)"' 2>/dev/null || echo "(no error message)")"
+    echo "${script_name}: ${command_label} がUnity側で受理されませんでした（success が true ではありません）: ${error_message}" >&2
+    exit 2
+  fi
+}
+
+# wr.testrunner batch_test_status を 1 回読み、正規化した結果（jq -cS）を標準出力に出す。読めなければ何も出さない。
+# 起動前のベースライン（同じ指定の連続実行で前回の結果を取り違えないための比較元）に使う。
+read_own_batch_baseline() {
+  local timeout="$1" payload
+  run_unity_cmd_capture wr.testrunner batch_test_status --json --timeout "$timeout" >/dev/null 2>&1 || true
+  payload="$(extract_result_payload "$UNITY_CMD_OUT")" || return 0
+  printf '%s' "$payload" | jq -cS . 2>/dev/null || true
+}
+
+# wr.testrunner batch_test_status をポーリングし、完了した結果を OWN_STATUS_PAYLOAD（整形済み）と
+# OWN_STATUS_NORMALIZED（jq -cS）に入れて戻る。完了しなければ exit する（戻らない）:
+#   2 … 予算超過、呼び出し自体の失敗、結果を持たない終端状態（error / cancelled）、ダイアログ
+#   3 … 版のずれ（旧版 UPM パッケージの PascalCase 応答を含む）
+# 完了状態でもベースラインと同一の間は、起動前の結果を読んでいるとみなして待ち続ける（予算を使い切ったら呼び出し元の比較で stale と判定する）。
+# 使い方: poll_own_batch_status <timeout秒> <ポーリング予算秒> <ベースライン（正規化済み。無ければ空）> <スクリプト名>
+OWN_STATUS_PAYLOAD=""
+OWN_STATUS_NORMALIZED=""
+poll_own_batch_status() {
+  local timeout="$1" poll_budget="$2" baseline="$3" script_name="$4"
+  local poll_interval=3 elapsed=0 rc payload status message
+  OWN_STATUS_PAYLOAD=""
+  OWN_STATUS_NORMALIZED=""
+  status=""
+  while [ "$elapsed" -lt "$poll_budget" ]; do
+    run_unity_cmd_capture wr.testrunner batch_test_status --json --timeout "$timeout" >/dev/null 2>&1 && rc=0 || rc=$?
+    if payload="$(extract_result_payload "$UNITY_CMD_OUT")"; then
+      if is_legacy_upm_payload "$payload"; then
+        exit_on_version_mismatch 3 "$payload"
+      fi
+      status="$(printf '%s' "$payload" | jq -r 'if type == "object" then (.status // empty) else empty end' 2>/dev/null || true)"
+      case "$status" in
+        completed)
+          OWN_STATUS_PAYLOAD="$payload"
+          OWN_STATUS_NORMALIZED="$(printf '%s' "$payload" | jq -cS .)"
+          if [ -z "$baseline" ] || [ "$OWN_STATUS_NORMALIZED" != "$baseline" ]; then
+            return 0
+          fi
+          ;;
+        error|failed|cancelled)
+          message="$(printf '%s' "$payload" | jq -r '.message // .error // empty' 2>/dev/null || true)"
+          echo "${script_name}: wr.testrunner batch_test_status が結果を持たない終端状態（status=${status}${message:+、${message}}）になりました。ハング・タイムアウト時の対応に従ってください。" >&2
+          printf '%s\n' "$payload"
+          exit 2
+          ;;
+      esac
+      # running・no_tests・malformed（ステータスファイルの書き込み途中）は待つ
+    elif [ "$rc" -eq 18 ]; then
+      echo "${script_name}: モーダルダイアログがエディタを塞いでいます（unity CLI の終了コード 18。ハングではありません）。Unityエディタを確認し、開いているダイアログを閉じてもらってください。" >&2
+      exit 2
+    elif [ "$rc" -eq 13 ] || is_command_not_found "$UNITY_CMD_DIAG"; then
+      exit_on_version_mismatch 3 "${UNITY_CMD_OUT:-$UNITY_CMD_ERR}"
+    elif [ "$rc" -ne 0 ] && ! is_transient_failure "$UNITY_CMD_DIAG"; then
+      echo "${script_name}: wr.testrunner batch_test_status が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
+      report_unity_cmd_failure "${UNITY_CMD_OUT:-$UNITY_CMD_ERR}" "$UNITY_CMD_RC"
+      exit 2
+    fi
+    # PlayMode 突入直後などのドメインリロードによる一時的な切断・busy、中身を読めない応答は、予算内で待ち続ける
+    sleep "$poll_interval"
+    elapsed=$((elapsed + poll_interval))
+  done
+  if [ -n "$OWN_STATUS_PAYLOAD" ]; then
+    # 完了状態だがベースラインと同一のまま予算を使い切った。判定（stale）は呼び出し元が行う
+    return 0
+  fi
+  echo "${script_name}: wr.testrunner batch_test_status が${poll_budget}秒以内に完了状態になりませんでした（最終状態: ${status:-不明}）。ハング・タイムアウト時の対応に従ってください。" >&2
+  exit 2
+}

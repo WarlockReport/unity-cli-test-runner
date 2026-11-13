@@ -18,15 +18,15 @@
 #   1  引数付きケースの FullName（括弧を含む名前。例: Ns.Class.Method(First,2)）が指定された。実行はしない。
 #      名前の中のカンマで区切りが割れるため。引数部分を外したメソッドの FullName を重複を除いて渡し直す
 #      （そのメソッドの全ケースが実行される）
-#   2  ハング・タイムアウト（ポーリング予算超過、`unity cmd`呼び出し自体の失敗を含む）、または
-#      wr.testrunner run_tests_batch_playmode がUnity側で受理されなかった場合
+#   2  ハング・タイムアウト（ポーリング予算超過、`unity cmd`呼び出し自体の失敗を含む）、
+#      wr.testrunner run_tests_batch_playmode がUnity側で受理されなかった場合、結果を持たない終端状態
+#      （error / cancelled）、またはモーダルダイアログ
 #   3  完了は検知したが結果がstaleと疑われる（ベースライン完全一致、またはfull-namesのいずれかの
 #      手がかりが結果に見当たらない）。
-#      また、unity cmd がコマンドまたは引数を見つけられなかった場合（プラグイン・UPMパッケージ・com.unity.pipeline の
-#      版の組み合わせが揃っていない疑い。標準エラーに診断が出る。再試行せず版を揃えてもらう）もこの終了コードになる
+#      また、版の組み合わせのずれ（コマンドまたは引数が見つからない、unity CLI が古い、UPM パッケージが旧版で
+#      応答が PascalCase。標準エラーに診断が出る。再試行せず版を揃えてもらう）もこの終了コードになる
 #
-# 注意: PlayMode突入直後はドメインリロードが発生し、その1〜2秒間 unity cmd が
-# "No Unity Editor instances found with reachable Pipeline servers." で失敗することが
+# 注意: PlayMode突入直後はドメインリロードが発生し、その1〜2秒間 unity cmd が一時的に失敗することが
 # 実測で確認されている（_lib.sh参照）。wr.testrunner batch_test_statusポーリング中にこれを検知した場合は
 # ハング扱いにせずポーリングを継続する。また、wr.testrunner run_tests_batch_playmode の起動呼び出し
 # 自体がこの瞬断に当たることもあるため、こちらは run_unity_cmd_resilient（有限予算の
@@ -47,112 +47,35 @@ FULL_NAMES="$1"
 exit_on_parameterized_case_names "$FULL_NAMES" "run-tests-batch-playmode.sh"
 CLI_TIMEOUT="${2:-120}"
 POLL_BUDGET_SECONDS="${3:-90}"
-POLL_INTERVAL_SECONDS=3
 ONESHOT_RETRY_BUDGET_SECONDS=15
 
-run_unity_cmd() {
-  unity cmd "$@" --timeout "$CLI_TIMEOUT"
-}
-
-# wr.testrunner batch_test_status --json の生レスポンスから中身のstatus文字列を取り出す。
-# 中身の取り出し（二重エンコード文字列／ネイティブJSONの両対応）は extract_result_payload（_lib.sh）が行う。
-# 旧版の本UPMパッケージは二重エンコード文字列を、現行版はネイティブなJSONを返す。
-extract_status() {
-  local raw="$1" payload
-  payload="$(extract_result_payload "$raw")" || return 0
-  echo "$payload" | jq -r '.status // empty' 2>/dev/null || true
-}
-
 echo "[1/4] wr.testrunner batch_test_status でベースラインを取得（同一full-names連続実行時のstale検知用）" >&2
-BASELINE=""
-if base_raw="$(run_unity_cmd wr.testrunner batch_test_status --json)"; then
-  BASELINE="$base_raw"
-else
-  echo "ベースライン取得(wr.testrunner batch_test_status)に失敗しました。セッション内で一度もバッチテストを実行していない場合など正常系の可能性があるため、ベースライン無しのまま続行します。" >&2
-  BASELINE=""
-fi
+BASELINE="$(read_own_batch_baseline "$CLI_TIMEOUT")"
+[ -n "$BASELINE" ] || echo "  ベースラインを取得できませんでした（セッション内で一度もバッチテストを実行していない場合など正常系の可能性があります）。ベースライン無しで続行します。" >&2
 
 echo "[2/4] wr.testrunner run_tests_batch_playmode --full-names ${FULL_NAMES} --async-tests true" >&2
 RUN_TESTS_RAW="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" wr.testrunner run_tests_batch_playmode --full-names "$FULL_NAMES" --async-tests true --json)" && rc=0 || rc=$?
-exit_on_version_mismatch "$rc" "$RUN_TESTS_RAW"
-if [ "$rc" -ne 0 ]; then
-  echo "wr.testrunner run_tests_batch_playmode のunity cmd呼び出し自体が失敗/タイムアウトしました（一時的なドメインリロード切断のリトライ予算超過を含む）。ハング・タイムアウト時の対応に従ってください。" >&2
-  report_unity_cmd_failure "$RUN_TESTS_RAW"
-  exit 2
-fi
-
-RUN_TESTS_SUCCESS="$(echo "$RUN_TESTS_RAW" | jq -r '.data.result.success // empty' 2>/dev/null || true)"
-if [ "$RUN_TESTS_SUCCESS" != "true" ]; then
-  RUN_TESTS_ERROR="$(echo "$RUN_TESTS_RAW" | jq -r '.data.result.Error // .data.result.error // "(no error message)"' 2>/dev/null || echo "(no error message)")"
-  echo "wr.testrunner run_tests_batch_playmode がUnity側で受理されませんでした（.data.result.success が true ではありません）: ${RUN_TESTS_ERROR}" >&2
-  exit 2
-fi
+accept_own_playmode_start "$rc" "$RUN_TESTS_RAW" run-tests-batch-playmode.sh "wr.testrunner run_tests_batch_playmode"
 
 echo "[3/4] wr.testrunner batch_test_status をポーリング（予算 ${POLL_BUDGET_SECONDS}秒）" >&2
-elapsed=0
-status=""
-raw=""
-while [ "$elapsed" -lt "$POLL_BUDGET_SECONDS" ]; do
-  if run_unity_cmd_capture wr.testrunner batch_test_status --json --timeout "$CLI_TIMEOUT"; then
-    raw="$UNITY_CMD_OUT"
-  else
-    if is_transient_failure "$UNITY_CMD_DIAG"; then
-      # PlayMode突入直後のドメインリロードによる一時的な切断、またはサーバーのbusy応答
-      # （0.6以降。settling / blocked_by_dialog）とみなし、ハング扱いにせずポーリングを
-      # 続行する（経過秒数はbudgetから消費されるため、解消しなければ下のbudget超過
-      # チェックで通常通りexit 2になる）
-      sleep "$POLL_INTERVAL_SECONDS"
-      elapsed=$((elapsed + POLL_INTERVAL_SECONDS))
-      continue
-    fi
-    echo "wr.testrunner batch_test_status が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
-    report_unity_cmd_failure "$UNITY_CMD_OUT" "$UNITY_CMD_RC"
-    exit 2
-  fi
-
-  status="$(extract_status "$raw")"
-
-  case "$status" in
-    completed|finished|idle)
-      if [ -n "$BASELINE" ] && [ "$raw" = "$BASELINE" ]; then
-        sleep "$POLL_INTERVAL_SECONDS"
-        elapsed=$((elapsed + POLL_INTERVAL_SECONDS))
-        continue
-      fi
-      break
-      ;;
-  esac
-
-  sleep "$POLL_INTERVAL_SECONDS"
-  elapsed=$((elapsed + POLL_INTERVAL_SECONDS))
-done
-
-case "$status" in
-  completed|finished|idle)
-    ;;
-  *)
-    echo "wr.testrunner batch_test_statusが${POLL_BUDGET_SECONDS}秒以内に完了状態になりませんでした（最終状態: ${status:-不明}）。ハング・タイムアウト時の対応に従ってください。" >&2
-    exit 2
-    ;;
-esac
+poll_own_batch_status "$CLI_TIMEOUT" "$POLL_BUDGET_SECONDS" "$BASELINE" run-tests-batch-playmode.sh
 
 echo "[4/4] 結果の整合性チェック（ベースライン比較・各full_nameの手がかり確認）" >&2
-
-if [ -n "$BASELINE" ] && [ "$raw" = "$BASELINE" ]; then
+if [ -n "$BASELINE" ] && [ "$OWN_STATUS_NORMALIZED" = "$BASELINE" ]; then
   echo "wr.testrunner batch_test_statusの結果がwr.testrunner run_tests_batch_playmode発行前のベースラインと完全一致しました。新しい実行結果を確認できませんでした（stale結果の疑い）。" >&2
-  extract_result_payload "$raw" || echo "$raw"
+  printf '%s\n' "$OWN_STATUS_PAYLOAD"
   exit 3
 fi
 
 IFS=',' read -ra NAMES <<< "$FULL_NAMES"
 for name in "${NAMES[@]}"; do
   trimmed="$(echo "$name" | sed 's/^ *//; s/ *$//')"
-  if ! echo "$raw" | grep -qF "$trimmed"; then
+  if ! printf '%s' "$OWN_STATUS_PAYLOAD" | grep -qF "$trimmed"; then
     echo "wr.testrunner batch_test_statusの結果に完全名「${trimmed}」の手がかりが見当たりません（取り違えの疑い）。" >&2
-    extract_result_payload "$raw" || echo "$raw"
+    printf '%s\n' "$OWN_STATUS_PAYLOAD"
     exit 3
   fi
 done
 
-extract_result_payload "$raw" || echo "$raw"
+printf '%s\n' "$OWN_STATUS_PAYLOAD"
 exit 0
