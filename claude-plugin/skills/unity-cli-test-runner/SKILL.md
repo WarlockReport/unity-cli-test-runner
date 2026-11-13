@@ -482,8 +482,10 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
   際にこのメッセージに遭遇した場合は、「未接続」と即断せず数秒待って再試行すること
 - `unity` CLI 1.0 では、同じ瞬断が終了コード 6 の `the Editor closed the connection without answering`
   （または `... before the command finished`）と、終了コード 12 の `No Pipeline instance found for project: ...`
-  （`EDITOR_NOT_RUNNING`）で現れる（実地検証済み、2026-11-13）。どちらも未起動という意味ではなく、上記スクリプトは
-  一時的失敗としてリトライする。CLI 1.0 の changelog にある busy（終了コード 17、`EDITOR_BUSY`）も一時的失敗として扱う（未実測）
+  （`EDITOR_NOT_RUNNING`）で現れる（実地検証済み、2026-11-13）。終了コード 12 は、エディタは見つかったがサーバーに届かない
+  `PIPELINE_UNREACHABLE`（`Found a running Unity Editor ... but its Pipeline server isn't reachable`）でも現れ、再コンパイル後の
+  リロード中に `EDITOR_NOT_RUNNING` に続いて出ることがある（利用プロジェクトでの実測、2026-11-13）。どれも未起動という意味ではなく、上記スクリプトは
+  一時的失敗としてリトライする（終了コード 12 でもこれら以外のコードはリトライしない）。CLI 1.0 の changelog にある busy（終了コード 17、`EDITOR_BUSY`）も一時的失敗として扱う（未実測）
 - `com.unity.pipeline` 0.9 では、同じ瞬断が別の文言で現れることがある（実地検証済み、2026-10-24）。
   `UNITY_PROJECT_PATH` で接続先を固定していると、再コンパイル中に
   `No Pipeline instance found for project: <パス>. Make sure Unity Editor is running ...` で失敗する

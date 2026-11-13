@@ -37,3 +37,4 @@
 | [0029](0029-compile-done-by-code-load-count.md) | ドメインリロード回数（`codeLoadCount`）でコンパイル完了を判定し、待ち時間を縮める | Accepted (2026-11-08) |
 | [0030](0030-cli-1.0-result-only-output.md) | `unity` CLI 1.0 の結果だけの出力に追従し、終了コードを主にして失敗を分類する | Accepted (2026-11-13) |
 | [0031](0031-test-results-single-camelcase-shape.md) | テスト結果を camelCase の 1 形式に揃え、EditMode も非同期実行で読む（`com.unity.pipeline` 1.0 への一本化） | Accepted (2026-11-13) |
+| [0032](0032-pipeline-unreachable-transient.md) | ドメインリロード中の `PIPELINE_UNREACHABLE`（終了コード 12）を一時的切断として扱う | Accepted (2026-11-13) |
