@@ -37,6 +37,11 @@
 #   ドメインリロード中の切断 … 終了コード 6、"the Editor closed the connection without answering" または
 #                              "the Editor closed the connection before the command finished"
 #   エディタが見つからない   … 終了コード 12（EDITOR_NOT_RUNNING。リロード中の瞬断でも出る）
+#   Pipeline に届かない      … 終了コード 12（PIPELINE_UNREACHABLE。"Found a running Unity Editor ... but its Pipeline server
+#                              isn't reachable"）。エディタは見つかったがサーバーが応答しない状態で、再コンパイル後のドメインリロード中に
+#                              出る（利用プロジェクトでの実測、2026-11-13。EDITOR_NOT_RUNNING に続いて出ることもある）
+# 終了コード 12 は一律には一時的扱いにしない。待っても解消しない失敗まで巻き込み、予算を使い切ってから止まると原因が見えにくくなるため、
+# 一時的と分かっているコード・文言だけを照合する。
 # CLI の changelog には、busy（読み込み中・コンパイル中・リロード中・同時実行の上限超過）が終了コード 17（EDITOR_BUSY）、
 # モーダルダイアログが終了コード 18（EDITOR_BLOCKED_BY_DIALOG）とある。17 は未実測で、一時的失敗として扱う。
 # 18 はリトライしても解消しないので、run_unity_cmd_resilient が専用の戻り値（4）で即座に返す。ただし Unity 6000.3 では
@@ -54,7 +59,7 @@
 
 is_transient_pipeline_unreachable() {
   local raw="$1"
-  echo "$raw" | grep -qE "No Unity Editor instances found with reachable Pipeline servers|No Pipeline instance found for project|Network error: An error occurred while sending the request|Invalid response format from Pipeline server|the Editor closed the connection|\"code\"[[:space:]]*:[[:space:]]*\"EDITOR_NOT_RUNNING\""
+  echo "$raw" | grep -qE "No Unity Editor instances found with reachable Pipeline servers|No Pipeline instance found for project|Network error: An error occurred while sending the request|Invalid response format from Pipeline server|the Editor closed the connection|Pipeline server isn't reachable|\"code\"[[:space:]]*:[[:space:]]*\"(EDITOR_NOT_RUNNING|PIPELINE_UNREACHABLE)\""
 }
 
 # 0.6以降のbusy応答を検出する。`unity` CLIが503応答をどう整形するかは版によって異なりうるため、

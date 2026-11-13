@@ -28,7 +28,7 @@ Claude Code プラグインと Unity 側パッケージは同じ版番号で揃�
 
 | `com.unity.pipeline` | 使うタグ |
 | --- | --- |
-| 1.0.x | `v1.0.0`（`unity` CLI 1.0.0 以降） |
+| 1.0.x | `v1.0.1`（`unity` CLI 1.0.0 以降） |
 | 0.10.x | `v0.10.0`（`unity` CLI 1.0.0-beta.15 以前） |
 | 0.9.x | `v0.9.2` |
 | 0.8.x | `v0.8.0` |
@@ -91,20 +91,20 @@ https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity
 ### 版を固定してインストールする
 
 上の手順はどちらも既定ブランチの最新を入れます。特定の版に固定するには、
-[対応表](#版番号と対応する-comunitypipeline) で選んだタグ（以下は `v1.0.0` の例）を両方に付けます。
+[対応表](#版番号と対応する-comunitypipeline) で選んだタグ（以下は `v1.0.1` の例）を両方に付けます。
 
 プラグインは、マーケットプレイスの登録時に `#<タグ>` を付けます。プラグイン本体はマーケットプレイスと同じリポジトリから
 取り出されるため、これでプラグインもそのタグの版に固定されます。
 
 ```
-/plugin marketplace add WarlockReport/unity-cli-test-runner#v1.0.0
+/plugin marketplace add WarlockReport/unity-cli-test-runner#v1.0.1
 /plugin install wr-unity-cli-tools
 ```
 
 Unity 側パッケージは、git URL の末尾に `#<タグ>` を付けます（`Packages/manifest.json` に直接書いてもかまいません）。
 
 ```
-https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity#v1.0.0
+https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity#v1.0.1
 ```
 
 固定先のタグを変えるときは、マーケットプレイスは同じ名前で 2 つ登録できないため、一度削除してから新しいタグで登録し直します

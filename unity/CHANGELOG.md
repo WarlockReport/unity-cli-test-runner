@@ -2,6 +2,14 @@
 
 All notable changes to this package are documented in this file.
 
+## [1.0.1] - 2026-11-13
+
+### Fixed
+
+- `ensure-compile-clean.sh` 等のスクリプトが、再コンパイル後のドメインリロード中に `unity` CLI が返す
+  `PIPELINE_UNREACHABLE`（終了コード 12、「Pipeline server isn't reachable」）で exit 2（ハング扱い）になっていたのを、
+  一時的な切断として待つようにした（Unity 側パッケージのコードに変更は無く、Claude Code プラグインと版を揃えるための更新）
+
 ## [1.0.0] - 2026-11-13
 
 ### Changed
