@@ -38,8 +38,10 @@
 #                              "the Editor closed the connection before the command finished"
 #   エディタが見つからない   … 終了コード 12（EDITOR_NOT_RUNNING。リロード中の瞬断でも出る）
 # CLI の changelog には、busy（読み込み中・コンパイル中・リロード中・同時実行の上限超過）が終了コード 17（EDITOR_BUSY）、
-# モーダルダイアログが終了コード 18（EDITOR_BLOCKED_BY_DIALOG）とある。どちらも未実測。17 は一時的失敗として扱い、
-# 18 はリトライしても解消しないので、run_unity_cmd_resilient が専用の戻り値（4）で即座に返す。
+# モーダルダイアログが終了コード 18（EDITOR_BLOCKED_BY_DIALOG）とある。17 は未実測で、一時的失敗として扱う。
+# 18 はリトライしても解消しないので、run_unity_cmd_resilient が専用の戻り値（4）で即座に返す。ただし Unity 6000.3 では
+# ダイアログ中のメインスレッド必須コマンドは 18 ではなく終了コード 14（タイムアウト。標準エラーに "did not complete within its
+# N s timeout"）で失敗した（実地検証済み、2026-11-13）。その場合のダイアログの判別は is_blocked_by_dialog の非対称性で行う。
 #
 # 逆に「コマンドまたは引数が見つからない」応答（Command Not Found / No command named ... / has no parameter --...）は一時的失敗ではない。
 # プラグイン・UPMパッケージ・com.unity.pipeline の版の組み合わせが揃っていないときに起き、

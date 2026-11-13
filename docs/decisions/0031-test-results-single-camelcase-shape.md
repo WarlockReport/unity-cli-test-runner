@@ -64,3 +64,5 @@ PlayMode の `test status` は `summary` が小文字で `results[]` だけ Pasc
 - 一致 0 件: EditMode・PlayMode とも → 1、標準出力は空。EditMode の連続 2 回とも 1
 - `run-tests-batch-editmode.sh` → 0（5/3/1/1）、`run-tests-batch-playmode.sh` → 0（3/2/1）・連続実行も 0、
   `run-tests-filtered-editmode.sh` → 0（12 件）、`run-tests-filtered-playmode.sh` → 0（4 件）。存在しない名前のバッチ EditMode → 0（標準エラーに案内）
+- `e2e/run-all.sh`: 一致 58 件 / 不一致 0 件。`e2e/run-all.sh --pipeline 1.0.0`: 一致 58 件 / 不一致 0 件、後片付け成功
+  （0.10 時点の 59 件から 1 件減ったのは、カンマ区切りの testName の罠の照合が「0 件の SUMMARY」から「終了コード 1」の 1 件になったため）

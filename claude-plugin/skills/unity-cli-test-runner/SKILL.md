@@ -79,8 +79,10 @@ ${CLAUDE_SKILL_DIR}/scripts/check-editor-ready.sh
 （実測、2026-10-24、Unity 6000.3.25f1 + 0.9.1-exp.1: `editor status` は busy 応答ではなく
 `Pipeline command 'editor' timed out after 30000ms`（`unity cmd` の終了コード 6）でタイムアウトし、
 `script recompile_status` は応答し続ける）。
-`unity` CLI 1.0 の changelog には、モーダルダイアログを終了コード 18（`EDITOR_BLOCKED_BY_DIALOG`）で報告するとある
-（未実測）。スクリプトはこれを受け取ったら上の判別を待たずにダイアログと扱う。
+`unity` CLI 1.0 + `com.unity.pipeline` 1.0 でも同じで、ダイアログ中の `editor status` は終了コード 14（タイムアウト。理由は標準エラーに
+`did not complete within its N s timeout`）で失敗し、`script recompile_status` は応答する（実測、2026-11-13、Unity 6000.3.25f1）。
+CLI の changelog にはモーダルダイアログを終了コード 18（`EDITOR_BLOCKED_BY_DIALOG`）で報告するとあるが、Unity 6000.3 では返らなかった。
+スクリプトは 18 を受け取ったら上の判別を待たずにダイアログと扱う（より新しい Unity に備えたもの）。
 
 ### 1. コンパイル状態の確定
 
