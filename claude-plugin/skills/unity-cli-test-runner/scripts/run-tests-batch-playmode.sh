@@ -61,7 +61,7 @@ echo "[3/4] wr.testrunner batch_test_status をポーリング（予算 ${POLL_B
 poll_own_batch_status "$CLI_TIMEOUT" "$POLL_BUDGET_SECONDS" "$BASELINE" run-tests-batch-playmode.sh
 
 echo "[4/4] 結果の整合性チェック（ベースライン比較・各full_nameの手がかり確認）" >&2
-if [ -n "$BASELINE" ] && [ "$OWN_STATUS_NORMALIZED" = "$BASELINE" ]; then
+if [ "$OWN_STATUS_SEEN_CHANGE" -eq 0 ]; then
   echo "wr.testrunner batch_test_statusの結果がwr.testrunner run_tests_batch_playmode発行前のベースラインと完全一致しました。新しい実行結果を確認できませんでした（stale結果の疑い）。" >&2
   printf '%s\n' "$OWN_STATUS_PAYLOAD"
   exit 3

@@ -475,6 +475,9 @@ run_pipeline_test_async() {
   echo "[3/4] test status をポーリング（予算 ${poll_budget}秒）" >&2
   status=""
   payload=""
+  # 起動後に、ベースラインと異なる応答（running 等）を一度でも観測したか。観測した後の完了は、前回と同一でも
+  # 今回の実行の結果とみなす（全件スキップ等で duration まで前回と同じになる実行を stale と誤判定しないため）
+  local seen_change=0 zero_same_polls=0
   while [ "$elapsed" -lt "$poll_budget" ]; do
     run_unity_cmd_capture test status --json --timeout "$timeout" >/dev/null 2>&1 && rc=0 || rc=$?
     # 終了コード 6 = 失敗テストを含む完了、2 = 一致 0 件の完了（"No selected tests found."）、130 = 取り消し。
@@ -482,20 +485,30 @@ run_pipeline_test_async() {
     if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ] || [ "$rc" -eq 2 ] || [ "$rc" -eq 130 ]; then
       if payload="$(extract_result_payload "$UNITY_CMD_OUT")"; then
         status="$(printf '%s' "$payload" | jq -r 'if type == "object" then (.status // empty) else empty end' 2>/dev/null || true)"
+        normalized="$(printf '%s' "$payload" | jq -cS .)"
+        if [ -z "$baseline" ] || [ "$normalized" != "$baseline" ]; then
+          seen_change=1
+        fi
         case "$status" in
           completed)
-            normalized="$(printf '%s' "$payload" | jq -cS .)"
-            # 一致 0 件。--async-tests の起動は受理され、test status が「0 件で完了」を返す（実地検証済み、2026-11-13）。
-            # 同じ filter で続けて 0 件になると前回の結果と同一になるが、どちらにしても 0 件なので stale とは扱わない
-            if printf '%s' "$payload" | jq -e '.summary.total == 0' >/dev/null 2>&1; then
+            # 前回と同一で、まだ変化を観測していない = test run 発行前の古い結果を読んでいる可能性がある
+            if [ "$seen_change" -eq 0 ]; then
+              # 一致 0 件の完了（--async-tests の起動は受理され、test status が「0 件で完了」を終了コード 2 で返す。
+              # 実地検証済み、2026-11-13）が前回と同一のとき、同じ filter で続けて 0 件になったのか、直した filter の
+              # 実行がまだ反映されていないのかを区別できないので、2 回のポーリングだけ待ってから 0 件と確定する
+              if printf '%s' "$payload" | jq -e '.summary.total == 0' >/dev/null 2>&1; then
+                zero_same_polls=$((zero_same_polls + 1))
+                if [ "$zero_same_polls" -ge 3 ]; then
+                  echo "${script_name}: 指定した filter に一致するテストがありません（filter=${filter}、filter-type=${filter_type}）。" >&2
+                  [ -n "$UNITY_CMD_ERR" ] && printf '%s\n' "$UNITY_CMD_ERR" | sed 's/^/  /' >&2
+                  exit 1
+                fi
+              fi
+              # 0 件以外は完了とみなさず待つ（予算内に新しい結果へ更新されれば抜ける。更新されなければ下の比較で exit 3）
+            elif printf '%s' "$payload" | jq -e '.summary.total == 0' >/dev/null 2>&1; then
               echo "${script_name}: 指定した filter に一致するテストがありません（filter=${filter}、filter-type=${filter_type}）。" >&2
               [ -n "$UNITY_CMD_ERR" ] && printf '%s\n' "$UNITY_CMD_ERR" | sed 's/^/  /' >&2
               exit 1
-            fi
-            # 完了状態だが前回と同一 = test run 発行前の古い結果をまだ読んでいる可能性が高い。
-            # 完了とみなさず待つ（予算内に新しい結果へ更新されれば抜ける。更新されなければ下の比較で exit 3）
-            if [ -n "$baseline" ] && [ "$normalized" = "$baseline" ]; then
-              :
             else
               break
             fi
@@ -539,7 +552,7 @@ run_pipeline_test_async() {
   fi
 
   echo "[4/4] 結果の整合性チェック（ベースライン比較・filter文字列の手がかり確認）" >&2
-  if [ -n "$baseline" ] && [ "$normalized" = "$baseline" ]; then
+  if [ "$seen_change" -eq 0 ]; then
     echo "${script_name}: test status の結果が test run 発行前のベースラインと完全一致しました。新しい実行結果を確認できませんでした（同一filter連続実行時のstale結果の疑い）。" >&2
     echo "  Unityコンソールログで InvalidOperationException(TestResultCollector.RunFinished) の有無を確認してください。" >&2
     printf '%s\n' "$payload"
@@ -666,15 +679,18 @@ read_own_batch_baseline() {
 # OWN_STATUS_NORMALIZED（jq -cS）に入れて戻る。完了しなければ exit する（戻らない）:
 #   2 … 予算超過、呼び出し自体の失敗、結果を持たない終端状態（error / cancelled）、ダイアログ
 #   3 … 版のずれ（旧版 UPM パッケージの PascalCase 応答を含む）
-# 完了状態でもベースラインと同一の間は、起動前の結果を読んでいるとみなして待ち続ける（予算を使い切ったら呼び出し元の比較で stale と判定する）。
+# 完了状態でもベースラインと同一の間は、起動前の結果を読んでいるとみなして待ち続ける（予算を使い切ったら呼び出し元が
+# OWN_STATUS_SEEN_CHANGE=0 を見て stale と判定する）。ベースラインと異なる応答を一度でも観測した後の完了は、同一でも受け入れる。
 # 使い方: poll_own_batch_status <timeout秒> <ポーリング予算秒> <ベースライン（正規化済み。無ければ空）> <スクリプト名>
 OWN_STATUS_PAYLOAD=""
 OWN_STATUS_NORMALIZED=""
+OWN_STATUS_SEEN_CHANGE=0
 poll_own_batch_status() {
   local timeout="$1" poll_budget="$2" baseline="$3" script_name="$4"
-  local poll_interval=3 elapsed=0 rc payload status message
+  local poll_interval=3 elapsed=0 rc payload status message normalized seen_change=0
   OWN_STATUS_PAYLOAD=""
   OWN_STATUS_NORMALIZED=""
+  OWN_STATUS_SEEN_CHANGE=0
   status=""
   while [ "$elapsed" -lt "$poll_budget" ]; do
     run_unity_cmd_capture wr.testrunner batch_test_status --json --timeout "$timeout" >/dev/null 2>&1 && rc=0 || rc=$?
@@ -683,11 +699,17 @@ poll_own_batch_status() {
         exit_on_version_mismatch 3 "$payload"
       fi
       status="$(printf '%s' "$payload" | jq -r 'if type == "object" then (.status // empty) else empty end' 2>/dev/null || true)"
+      normalized="$(printf '%s' "$payload" | jq -cS .)"
+      # 起動後にベースラインと異なる応答（running 等）を一度でも観測したら、その後の完了は前回と同一でも今回の結果とみなす
+      if [ -z "$baseline" ] || [ "$normalized" != "$baseline" ]; then
+        seen_change=1
+      fi
       case "$status" in
         completed)
           OWN_STATUS_PAYLOAD="$payload"
-          OWN_STATUS_NORMALIZED="$(printf '%s' "$payload" | jq -cS .)"
-          if [ -z "$baseline" ] || [ "$OWN_STATUS_NORMALIZED" != "$baseline" ]; then
+          OWN_STATUS_NORMALIZED="$normalized"
+          if [ "$seen_change" -eq 1 ]; then
+            OWN_STATUS_SEEN_CHANGE=1
             return 0
           fi
           ;;

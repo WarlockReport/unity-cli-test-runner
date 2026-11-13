@@ -38,7 +38,10 @@ PlayMode の `test status` は `summary` が小文字で `results[]` だけ Pasc
 3. **終了コードの扱い**:
    - 失敗テストを含む完了（終了コード 6）は結果確定（exit 0）
    - 一致 0 件は `run-editmode-test.sh` / `run-playmode-test.sh` とも **exit 1**（新設。標準出力は空で、件数を作らない）。
-     同じ filter で続けて 0 件になると結果はベースラインと同一になるが、どちらにしても 0 件なので stale とは扱わない
+     「0 件で完了」が前回の結果（ベースライン）と同一のときは、同じ filter で続けて 0 件になったのか、直した filter の実行が
+     まだ反映されていないのかを区別できないので、さらに 2 回ポーリングしてから 0 件と確定する（数秒遅れるだけ）
+   - 起動後にベースラインと異なる応答（running 等）を一度でも観測したら、その後の完了は前回と同一でも今回の結果とみなす
+     （全件スキップ等で duration まで前回と同じになる実行を、予算を使い切ってから stale と誤判定しないため。自前の PlayMode も同じ）
    - summary を持たない終端状態（`test status` / `batch_test_status` の `error`・`failed`・`cancelled`、終了コード 130）は、
      ポーリング予算を待たずに **即 exit 2**（`status` と `message` を標準エラーへ）
    - ポーリング中に終了コード 0 で中身を読めない応答（空・途中で切れた JSON）は、書きかけとみなして待つ（予算超過なら exit 2）
@@ -55,7 +58,7 @@ PlayMode の `test status` は `summary` が小文字で `results[]` だけ Pasc
 - すべてのテスト実行スクリプトの出力が同じ形になり、SKILL.md の「キーの大文字小文字の混在」の注意が不要になった
 - `run-editmode-test.sh` / `run-playmode-test.sh` の終了コード表に 1（一致 0 件）が加わった。これまでは 0 件の結果を exit 0 で返していた
 - `unity cmd wr.testrunner ...` を直接叩いていた利用者は、応答のキーの変更に追従する必要がある
-- 別の filter の古い「0 件で完了」を新しい実行の結果と取り違える余地は残る（起動直後の `test status` は running になるため実害は小さい）
+- 変化を一度も観測しないまま前回と同一の完了が続く場合だけを stale（exit 3）とする。0 件の場合はその代わりに猶予の後 exit 1
 
 ### 実地検証（2026-11-13、TestProject、Unity 6000.3.25f1 + `com.unity.pipeline` 1.0.0 + `unity` CLI 1.0.0）
 

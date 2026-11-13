@@ -40,9 +40,11 @@ namespace TestRunnerCli
         [JsonProperty("requestId")]
         public string RequestId { get; set; }
         /// <summary>実行の状態。同期の EditMode 実行が結果を返すときだけ "completed" を入れる
-        /// （test status の完了状態と同じ値）。拒否時・PlayMode の起動応答では null で、JSONに出さない。</summary>
+        /// （test status の完了状態と同じ値）。拒否時・PlayMode の起動応答では null で、JSONに出さない。
+        /// 基底の CommandExecutionResponse.Status（サーバーの状態を表す）とは別の意味なので、new で隠して別に持つ
+        /// （基底のものに入れると、Pipeline や CLI がサーバー側の状態として解釈しうるため）。</summary>
         [JsonProperty("status", NullValueHandling = NullValueHandling.Ignore)]
-        public string Status { get; set; }
+        public new string Status { get; set; }
 
         /// <summary>コレクションを初期化した空のレスポンスを作る。</summary>
         public TestExecutionResponse()

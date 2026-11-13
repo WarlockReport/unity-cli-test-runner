@@ -31,8 +31,8 @@
 #      判定できなかった。標準出力の生JSONを確認して手動判断する
 #      （console get の応答が想定外でも判定自体は script recompile_status で済んでいるため、
 #      その場合は exit 3 ではなく exit 1 になる）。
-#      また、unity cmd がコマンドまたは引数を見つけられなかった場合、editor status に codeLoadCount が
-#      無い場合（プラグイン・UPMパッケージ・com.unity.pipeline の版の組み合わせが揃っていない疑い。
+#      また、unity cmd がコマンドまたは引数を見つけられなかった場合、unity CLI が 1.0.0 より古い場合、editor status に
+#      codeLoadCount が無い場合（プラグイン・UPMパッケージ・com.unity.pipeline・unity CLI の版の組み合わせが揃っていない疑い。
 #      標準エラーに診断が出る。再試行せず版を揃えてもらう）もこの終了コードになる
 #   4  unity CLI がモーダルダイアログ（終了コード 18）を報告した、または内部のunity cmd呼び出し（console clear/script recompile/editor statusのいずれか）
 #      が失敗/タイムアウトしたが、メインスレッド不要のscript recompile_statusは正常応答した
