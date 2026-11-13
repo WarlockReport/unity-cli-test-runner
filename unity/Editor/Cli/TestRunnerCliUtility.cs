@@ -47,6 +47,7 @@ namespace TestRunnerCli
             return new TestExecutionResponse
             {
                 Success = true,
+                Status = "completed",
                 Command = command,
                 Mode = mode,
                 Duration = Math.Round(duration, 2),
