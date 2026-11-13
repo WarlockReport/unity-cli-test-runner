@@ -21,15 +21,16 @@
 # 前提: `unity`（Pipelineサーバー経由で起動中エディタに接続するCLI）と `jq` がPATH上にあること。
 #
 # 終了コード:
-#   0  結果確定（PASS/FAILは問わない）。標準出力のJSON（Summary.Total/Passed/Failed、
-#      Results[].FullName/Status/Message/StackTrace を含む）を読み、通常の結果報告に進んでよい。
+#   0  結果確定（PASS/FAILは問わない）。標準出力の JSON（status/duration/summary{total,passed,failed,skipped,inconclusive}/
+#      results[]{fullName,status,duration,message,stackTrace}）を読み、通常の結果報告に進んでよい。
 #      指定の組み合わせに当たるテストが 0 件だった場合も 0（標準エラーに 0 件であることを出す）
 #   1  実行していない。絞り込み条件が無い、除く名前に引数付きケースの FullName（括弧を含む名前）がある、
 #      または指定した名前が test list に見つからない（標準エラーに見つからない名前を列挙する）
 #   2  使い方の誤り（未知の引数・値の欠落）、ハング・タイムアウト（一時的切断のリトライ予算超過を含む、
-#      `unity cmd`呼び出し自体の失敗）、または Unity 側で受理されなかった。スキルの「ハング・タイムアウト時の対応」に従う
-#   3  unity cmd がコマンドまたは引数を見つけられなかった（プラグイン・UPMパッケージ・com.unity.pipeline の版の組み合わせが
-#      揃っていない疑い。標準エラーに診断が出る。再試行せず版を揃えてもらう）、または test list の応答が想定外の形
+#      `unity cmd`呼び出し自体の失敗）、Unity 側で受理されなかった（テスト実行のタイムアウトを含む）、またはモーダルダイアログ。
+#      スキルの「ハング・タイムアウト時の対応」に従う
+#   3  版の組み合わせのずれ（コマンドまたは引数が見つからない、unity CLI が古い、UPM パッケージが旧版で応答が PascalCase。
+#      標準エラーに診断が出る。再試行せず版を揃えてもらう）、または test list・実行結果の応答が想定外の形
 
 set -euo pipefail
 
@@ -55,22 +56,5 @@ cmd_args=()
 
 echo "[2/2] wr.testrunner run_tests_filtered_editmode ${cmd_args[*]}" >&2
 raw="$(run_unity_cmd_resilient "$SEL_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" wr.testrunner run_tests_filtered_editmode "${cmd_args[@]}" --json)" && rc=0 || rc=$?
-exit_on_version_mismatch "$rc" "$raw"
-if [ "$rc" -ne 0 ]; then
-  echo "wr.testrunner run_tests_filtered_editmode のunity cmd呼び出し自体が失敗/タイムアウトしました（一時的なドメインリロード切断のリトライ予算超過を含む）。ハング・タイムアウト時の対応に従ってください。" >&2
-  report_unity_cmd_failure "$raw"
-  exit 2
-fi
-
-if [ "$(printf '%s' "$raw" | jq -r '.data.result.success // empty' 2>/dev/null || true)" != "true" ]; then
-  error_message="$(printf '%s' "$raw" | jq -r '.data.result.Error // .data.result.error // "(no error message)"' 2>/dev/null || echo "(no error message)")"
-  echo "wr.testrunner run_tests_filtered_editmode がUnity側で受理されませんでした（.data.result.success が true ではありません）: ${error_message}" >&2
-  exit 2
-fi
-
-if [ "$(printf '%s' "$raw" | jq -r '.data.result.Summary.Total // empty' 2>/dev/null || true)" = "0" ]; then
-  echo "指定の組み合わせに当たるテストが 0 件でした（名前はすべて実在するが、含める条件と除く条件を合わせると何も残らない）。" >&2
-fi
-
-printf '%s\n' "$raw"
-exit 0
+finish_own_editmode_result "$rc" "$raw" "$SCRIPT_NAME" "wr.testrunner run_tests_filtered_editmode" \
+  "指定の組み合わせに当たるテストが 0 件でした（名前はすべて実在するが、含める条件と除く条件を合わせると何も残らない）。"

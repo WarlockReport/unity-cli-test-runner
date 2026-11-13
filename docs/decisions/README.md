@@ -35,3 +35,5 @@
 | [0027](0027-test-selection-filter.md) | 除く名前・カテゴリによる絞り込み実行を、Unity の Filter の除外指定で 1 回の実行として行う | Accepted (2026-11-03) |
 | [0028](0028-pipeline-0.10-only.md) | `com.unity.pipeline` 0.10.x への一本化と引数名の kebab-case 化、引数名の不一致を版のずれとして報告する | Accepted (2026-11-08) |
 | [0029](0029-compile-done-by-code-load-count.md) | ドメインリロード回数（`codeLoadCount`）でコンパイル完了を判定し、待ち時間を縮める | Accepted (2026-11-08) |
+| [0030](0030-cli-1.0-result-only-output.md) | `unity` CLI 1.0 の結果だけの出力に追従し、終了コードを主にして失敗を分類する | Accepted (2026-11-13) |
+| [0031](0031-test-results-single-camelcase-shape.md) | テスト結果を camelCase の 1 形式に揃え、EditMode も非同期実行で読む（`com.unity.pipeline` 1.0 への一本化） | Accepted (2026-11-13) |

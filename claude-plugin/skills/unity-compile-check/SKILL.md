@@ -13,8 +13,8 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 
 ## 前提
 
-- 対象Unityプロジェクトの `com.unity.pipeline` は **0.10.0-exp.1 以降**であること（0.9 以前は
-  非対応。コンパイル完了の判定に 0.10 で加わった `editor status` の `codeLoadCount` を使う）
+- 対象Unityプロジェクトの `com.unity.pipeline` は **1.0.0 以降**、`unity` CLI は **1.0.0 以降**であること
+  （CLI 1.0 の結果だけを出す `--json` の形を前提にしている。コンパイル完了の判定には `editor status` の `codeLoadCount` を使う）
 - 各コマンドには必ず明示的な `--timeout <秒>` を付ける（内部で呼ぶスクリプト側が既定値を持つ）
 - スクリプトはロジックの複製を避けるため `unity-cli-test-runner` スキル側のものを呼ぶ。本ドキュメントの
   コマンドに書かれたパスは、スキルの読み込み時にこのスキルのディレクトリの絶対パスへ展開されるので、
@@ -39,10 +39,10 @@ ${CLAUDE_SKILL_DIR}/../unity-cli-test-runner/scripts/check-editor-ready.sh
 | 終了コード | 意味 | 対応 |
 | --- | --- | --- |
 | 0 | 起動中エディタが見つかり status が ready | 次のステップへ進む |
-| 1 | 起動中エディタは見つかったが status が ready 以外 | 標準エラー出力のstatus値をそのまま報告する |
+| 1 | 起動中エディタは見つかったが status が ready 以外、またはモーダルダイアログでメインスレッドが塞がれている | 標準エラー出力の内容をそのまま報告する。ダイアログならダイアログを閉じてもらう |
 | 2 | 起動中エディタが見つからない、リトライ予算を使い切っても失敗/タイムアウト | Unityエディタが起動していないか未接続。呼び出し元（人間またはコントローラー）に手動起動・接続確認を依頼する（モーダルダイアログでメインスレッドが塞がれているケースはスクリプト内で判別され exit 1 になるため、ここには来ない） |
 | 3 | 応答は得られたが想定した形式でパースできなかった | 標準出力の生JSONを確認して手動判断する |
-| 3 | `unity cmd` がコマンドまたは引数を見つけられなかった（標準エラーに「版の組み合わせが揃っていない可能性」の診断が出る） | 再試行しない。プラグイン・UPMパッケージ・`com.unity.pipeline` の版の組み合わせが揃っていない。README の「版番号と対応する com.unity.pipeline」の表で版を揃えるようユーザーに伝える |
+| 3 | `unity cmd` がコマンドまたは引数を見つけられなかった、または `unity` CLI が 1.0.0 より古い（標準エラーに版のずれの診断が出る） | 再試行しない。標準エラーの案内（CLI を上げる／README の「版番号と対応する com.unity.pipeline」の表で版を揃える）をそのままユーザーに伝える |
 
 ### 1. コンパイル状態の確定
 
@@ -62,8 +62,8 @@ ${CLAUDE_SKILL_DIR}/../unity-cli-test-runner/scripts/ensure-compile-clean.sh [�
 | 1 | コンパイルエラーを検出（標準出力に詳細） | エラー内容をそのまま報告して終了する |
 | 2 | ポーリング予算超過（`unity cmd`呼び出し自体の失敗を含む。スクリプト内自動リカバリを試みても解消しなかった） | 盲目的に再試行せず、呼び出し元にハング・タイムアウトの可能性をそのまま報告する |
 | 3 | `script recompile_status` から `failed`/`compilationFailed` を取り出せず判定不能（`console get` の応答が想定外なだけなら exit 1 になる） | 標準出力の生JSONを確認して手動判断する |
-| 3 | `unity cmd` がコマンドまたは引数を見つけられなかった、または `editor status` に `codeLoadCount` が無かった（標準エラーに「版の組み合わせが揃っていない可能性」の診断が出る） | 再試行しない。プラグイン・UPMパッケージ・`com.unity.pipeline` の版の組み合わせが揃っていない。README の「版番号と対応する com.unity.pipeline」の表で版を揃えるようユーザーに伝える |
-| 4 | 内部の`unity cmd`呼び出し（`console clear`/`script recompile`/`editor status`のいずれか）が失敗したが、メインスレッド不要の `script recompile_status` は正常応答した（モーダルダイアログによるメインスレッドブロックの可能性が高い。**真のハングではない**） | ハングとして扱わず、ユーザーにダイアログを閉じてもらうよう依頼する（エディタの再起動は不要）。`.unity`/`.prefab`ファイルをUnity上で開いた状態のまま外部から変更すると、外部変更確認ダイアログが出てこの状態になることが多い |
+| 3 | `unity cmd` がコマンドまたは引数を見つけられなかった、`unity` CLI が 1.0.0 より古い、または `editor status` に `codeLoadCount` が無かった（標準エラーに版のずれの診断が出る） | 再試行しない。標準エラーの案内（CLI を上げる／README の「版番号と対応する com.unity.pipeline」の表で版を揃える）をそのままユーザーに伝える |
+| 4 | `unity` CLI がモーダルダイアログ（終了コード 18）を報告した、または内部の`unity cmd`呼び出し（`console clear`/`script recompile`/`editor status`のいずれか）が失敗したが、メインスレッド不要の `script recompile_status` は正常応答した（モーダルダイアログによるメインスレッドブロックの可能性が高い。**真のハングではない**） | ハングとして扱わず、ユーザーにダイアログを閉じてもらうよう依頼する（エディタの再起動は不要）。`.unity`/`.prefab`ファイルをUnity上で開いた状態のまま外部から変更すると、外部変更確認ダイアログが出てこの状態になることが多い |
 
 複数ファイルにまたがる大きめの修正の直後はドメインリロードが長引く傾向があるため、既定を
 待たずに第1引数で予算を伸ばしてよい（例: `${CLAUDE_SKILL_DIR}/../unity-cli-test-runner/scripts/ensure-compile-clean.sh 120`）。
@@ -75,8 +75,8 @@ ${CLAUDE_SKILL_DIR}/../unity-cli-test-runner/scripts/ensure-compile-clean.sh [�
   `script recompile_status` の応答）をそのまま報告する。`console get` の `entries` が空でもコンパイルエラーは
   実在する（判定は `script recompile_status` が一次情報）ので、「エラー無し」と読み替えてはならない
 - 終了コード2: ハング・タイムアウトの可能性を報告し、同じ呼び出しを盲目的に再試行しない
-- 終了コード3: 標準エラーに「版の組み合わせが揃っていない可能性」の診断が出ていれば、再試行せず、プラグイン・UPMパッケージ・
-  `com.unity.pipeline` の版を README の「版番号と対応する com.unity.pipeline」の表で揃えてもらうよう報告する。
+- 終了コード3: 標準エラーに版のずれの診断が出ていれば、再試行せず、診断の案内（`unity` CLI を上げる、プラグイン・UPMパッケージ・
+  `com.unity.pipeline` の版を README の「版番号と対応する com.unity.pipeline」の表で揃える）をそのまま報告する。
   それ以外は生JSONを添えて手動判断を仰ぐ
 - 終了コード4: ハングではなくモーダルダイアログによるメインスレッドブロックの可能性が高い旨を報告し、
   ダイアログを閉じてもらうよう依頼する（`.unity`/`.prefab`ファイルの外部変更確認ダイアログが典型例）。

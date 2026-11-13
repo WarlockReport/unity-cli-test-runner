@@ -6,10 +6,10 @@
 #
 # 使い方: bash e2e/run-all.sh [--pipeline <版>]   （リポジトリ内のどこから実行してもよい）
 #
-#   --pipeline <版>  起動中の Editor の com.unity.pipeline を一時的に <版>（例: 0.10.0-exp.1）へ差し替えて照合し、
+#   --pipeline <版>  起動中の Editor の com.unity.pipeline を一時的に <版>（例: 1.0.0）へ差し替えて照合し、
 #                    終了時（失敗・中断時も）に TestProject/Packages の manifest.json / packages-lock.json を
-#                    git の状態へ戻して再解決させる。旧版の Pipeline でも動くことを確かめるために使う。
-#                    スクリプト群が 0.10 専用（引数名・コンパイル完了の判定）のため、0.10 未満の版には切り替えられない
+#                    git の状態へ戻して再解決させる。1.0.x の別の版でも動くことを確かめるために使う。
+#                    スクリプト群が 1.0 専用（camelCase の結果・unity CLI 1.0 の出力形式）のため、1.0 未満の版には切り替えられない
 #
 # 前提: TestProject を Unity Editor で開いていること。`unity` と `jq` が PATH 上にあること。
 #
@@ -105,11 +105,11 @@ expect_fail_line() {
 }
 
 # 直前の run_test_case（同じラベル）の結果に、指定したテストが含まれ、別のテストが含まれないことを照合する。
-# EditMode の結果は .data.result.Results[]、PlayMode の結果は .results[] に FullName がある
+# 結果は EditMode・PlayMode とも .results[].fullName（camelCase）にある
 # 使い方: expect_names <ラベル> <含まれるべき FullName（空なら確かめない）> <含まれてはいけない FullName>
 expect_names() {
   local label="$1" present="$2" absent="$3" names
-  names="$(jq -r '(.data.result.Results // .results // [])[].FullName' "${OUT_DIR}/${label}.out" 2>/dev/null)"
+  names="$(jq -r '(.results // [])[].fullName' "${OUT_DIR}/${label}.out" 2>/dev/null)"
   if [ -n "$present" ] && ! printf '%s\n' "$names" | grep -qxF "$present"; then
     record_fail "${label} テスト名" "「${present}」が結果に無い（${OUT_DIR}/${label}.out を参照）"
     return 1
@@ -132,7 +132,7 @@ check_connection() {
     echo "TestProject の Editor に接続できません。TestProject を Unity で開いてから再実行してください（${OUT_DIR}/0-connection.out を参照）。" >&2
     return 1
   fi
-  actual="$(jq -r '.data.result.projectPath // empty' "${OUT_DIR}/0-connection.out" 2>/dev/null)"
+  actual="$(jq -r '.projectPath // empty' "${OUT_DIR}/0-connection.out" 2>/dev/null)"
   if [ -z "$actual" ] || [ "$(cd "$actual" 2>/dev/null && pwd -P)" != "$(cd "$PROJECT_PATH" && pwd -P)" ]; then
     echo "接続先が TestProject ではありません（projectPath=${actual:-取得できず}）。" >&2
     return 1
@@ -174,9 +174,9 @@ stage_editmode() {
 
 # 段階 6: スキルが前提にしている Unity 側の挙動が、今も変わっていないかを確かめる
 stage_unity_traps() {
-  # testName にカンマ区切りで複数名を渡すと、エラーにならず 0 件で空振りする。
-  # この罠があるためにバッチ専用コマンドを用意している。挙動が変わったら設計を見直す合図になる
-  run_test_case "6-trap-comma-testname" editmode "total=0 passed=0 failed=0 skipped=0" \
+  # testName にカンマ区切りで複数名を渡すと、どのテストにも一致しない（Pipeline 1.0 では「一致 0 件」として扱われ、
+  # スクリプトは終了コード 1 を返す）。この罠があるためにバッチ専用コマンドを用意している。挙動が変わったら設計を見直す合図になる
+  expect_exit "6-trap-comma-testname" 1 \
     bash "${SCRIPTS}/run-editmode-test.sh" "Fixtures.EditMode.AllPassFixture,Fixtures.EditMode.PrefixFixture" testName
 
   # testName は FullName に対する大文字小文字を区別しない部分一致で照合される。そのためクラスの
@@ -196,9 +196,10 @@ stage_unity_traps() {
     record_fail "$label" "test list の呼び出しに失敗（${OUT_DIR}/${label}-*.out を参照）"
     return 1
   fi
-  em="$(jq -r '[.data.result.Tests[] | select(.FullName | test("\\.SameNameFixture\\.")) | "\(.FullName)@\(.Mode)"] | sort | join(",")' \
+  # unity CLI 1.0 の test list は 1 行 1 テストで出るので、-s で配列にまとめて読む
+  em="$(jq -r -s '[.[] | select(.FullName | test("\\.SameNameFixture\\.")) | "\(.FullName)@\(.Mode)"] | sort | join(",")' \
     "${OUT_DIR}/${label}-editmode.out" 2>/dev/null)"
-  pm="$(jq -r '[.data.result.Tests[] | select(.FullName | test("\\.SameNameFixture\\.")) | "\(.FullName)@\(.Mode)"] | sort | join(",")' \
+  pm="$(jq -r -s '[.[] | select(.FullName | test("\\.SameNameFixture\\.")) | "\(.FullName)@\(.Mode)"] | sort | join(",")' \
     "${OUT_DIR}/${label}-playmode.out" 2>/dev/null)"
   if [ "$em" = "Fixtures.EditMode.SameNameFixture.Pass_Only@EditMode" ] \
     && [ "$pm" = "Fixtures.PlayMode.SameNameFixture.Pass_Only@PlayMode" ]; then
@@ -319,13 +320,12 @@ CS
   expect_exit "8-compile-error-recovered" 0 bash "${SCRIPTS}/ensure-compile-clean.sh"
 }
 
-# 0.10 以上の版かどうか（major.minor を数値で比べる）。0.10 以上なら 0 を返す
-is_pipeline_0_10_or_later() {
-  local major minor
+# 1.0 以上の版かどうか（major を数値で比べる）。1.0 以上なら 0 を返す
+is_pipeline_1_0_or_later() {
+  local major
   major="$(echo "$1" | cut -d. -f1)"
-  minor="$(echo "$1" | cut -d. -f2)"
-  case "${major}${minor}" in *[!0-9]*|"") return 1 ;; esac
-  [ "$major" -gt 0 ] || [ "$minor" -ge 10 ]
+  case "$major" in *[!0-9]*|"") return 1 ;; esac
+  [ "$major" -ge 1 ]
 }
 
 # --pipeline 指定時に、起動中の Editor の com.unity.pipeline を差し替えてコンパイル完了まで待つ
@@ -336,7 +336,7 @@ switch_pipeline() {
   PIPELINE_SWITCHED=1
   if ! run_saved "pipeline-switch" unity cmd package add --name "com.unity.pipeline@${version}" \
       --confirm true --wait true --json --timeout 300 \
-    || [ "$(jq -r '.data.result.status // empty' "${OUT_DIR}/pipeline-switch.out" 2>/dev/null)" != "completed" ]; then
+    || [ "$(jq -r '.status // empty' "${OUT_DIR}/pipeline-switch.out" 2>/dev/null)" != "completed" ]; then
     echo "com.unity.pipeline@${version} への差し替えに失敗しました（${OUT_DIR}/pipeline-switch.out を参照）。" >&2
     return 1
   fi
@@ -364,7 +364,7 @@ restore_pipeline() {
   done
   elapsed=0
   while [ "$elapsed" -lt "$PIPELINE_POLL_BUDGET_SECONDS" ]; do
-    status="$(unity cmd package status --json --timeout 30 2>/dev/null | jq -r '.data.result.status // empty' 2>/dev/null || true)"
+    status="$(unity cmd package status --json --timeout 30 2>/dev/null | jq -r '.status // empty' 2>/dev/null || true)"
     case "$status" in completed|failed) break ;; esac
     sleep 2
     elapsed=$((elapsed + 2))
@@ -393,7 +393,7 @@ main() {
       --pipeline)
         PIPELINE_VERSION="${2:-}"
         if [ -z "$PIPELINE_VERSION" ]; then
-          echo "--pipeline には版を指定してください（例: --pipeline 0.10.0-exp.1）。" >&2
+          echo "--pipeline には版を指定してください（例: --pipeline 1.0.0）。" >&2
           exit 2
         fi
         shift 2
@@ -404,8 +404,8 @@ main() {
         ;;
     esac
   done
-  if [ -n "$PIPELINE_VERSION" ] && ! is_pipeline_0_10_or_later "$PIPELINE_VERSION"; then
-    echo "0.10 未満の版（${PIPELINE_VERSION}）には切り替えられません（スクリプト群が 0.10 専用のため）。" >&2
+  if [ -n "$PIPELINE_VERSION" ] && ! is_pipeline_1_0_or_later "$PIPELINE_VERSION"; then
+    echo "1.0 未満の版（${PIPELINE_VERSION}）には切り替えられません（スクリプト群が 1.0 専用のため）。" >&2
     exit 2
   fi
 

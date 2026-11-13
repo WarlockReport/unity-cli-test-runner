@@ -1,20 +1,22 @@
 # unity-cli-test-runner
 
-[Unity CLI](https://docs.unity.com/en-us/unity-cli/unity-cli) と [Unity Pipeline package](https://docs.unity3d.com/Packages/com.unity.pipeline@0.10/manual/index.html) を使用して、コード修正後に指定したテストを実行するための Claude Code プラグインです。
+[Unity CLI](https://docs.unity.com/en-us/unity-cli/unity-cli) と [Unity Pipeline package](https://docs.unity3d.com/Packages/com.unity.pipeline@1.0/manual/index.html) を使用して、コード修正後に指定したテストを実行するための Claude Code プラグインです。
 
 対象 Unity プロジェクト側に導入する Unity Editor 拡張（UPMパッケージ）と、Claude Code 側のスキル・専用サブエージェントの 2 つで構成されています。
 
 ## 前提条件
 
-- `unity` CLI と `jq` が PATH 上にあること（`unity` CLI は 1.0.0-beta.13 で検証。`unity cmd <グループ> <コマンド>` の
-  形でコマンドを転送できる版が必要）
+- `unity` CLI（**1.0.0 以降**）と `jq` が PATH 上にあること。CLI 1.0 は `--json` の出力から外枠（`success`/`data`/`target`）を
+  外して結果だけを出すようになり、スクリプトはこの形だけを読む。古い CLI ではスクリプトが「unity CLI を 1.0.0 以降に上げる」
+  案内を出して終了コード 3 で止まる（詳細は [ADR-0030](docs/decisions/0030-cli-1.0-result-only-output.md)）
 - 対象 Unity プロジェクトが **Unity 6000.3（LTS）** であること。対象とする Unity は LTS の版に限り、現在は 6000.3 だけで検証している
-- 対象Unityプロジェクトに `com.unity.pipeline` パッケージ（**0.10.0-exp.1 以降**）が導入済みであること。
-  0.10 で引数名が kebab-case（`--filter-type` 等）になり、コンパイル完了の判定に 0.10 で加わった `editor status` の
-  `codeLoadCount` を使うため、0.9 以前には対応していない（詳細は [ADR-0028](docs/decisions/0028-pipeline-0.10-only.md)・
-  [ADR-0029](docs/decisions/0029-compile-done-by-code-load-count.md)）。**0.9 を使い続ける場合は、プラグインと
-  Unity 側パッケージの両方を `v0.9.2` に、0.8 なら `v0.8.0` に固定してください**（[版番号と対応する `com.unity.pipeline`](#版番号と対応する-comunitypipeline)）。
-  0.8 以前を切った経緯は [ADR-0025](docs/decisions/0025-pipeline-0.9-only.md)・ [ADR-0016](docs/decisions/0016-pipeline-0.8-only.md)・
+- 対象Unityプロジェクトに `com.unity.pipeline` パッケージ（**1.0.0 以降**）が導入済みであること。
+  1.0 でテスト結果のキーが camelCase になり、Unity 側パッケージの応答もそれに揃えたため、0.10 以前には対応していない
+  （詳細は [ADR-0031](docs/decisions/0031-test-results-single-camelcase-shape.md)。コンパイル完了の判定は
+  [ADR-0029](docs/decisions/0029-compile-done-by-code-load-count.md)）。**0.10 を使い続ける場合は、プラグインと
+  Unity 側パッケージの両方を `v0.10.0` に固定し、`unity` CLI を 1.0.0-beta.15 以前に戻してください**（`unity self-update --rollback`。
+  `v0.10.0` は CLI 1.0 の出力形式を読めない）。0.9 なら `v0.9.2`、0.8 なら `v0.8.0` に固定します（[版番号と対応する `com.unity.pipeline`](#版番号と対応する-comunitypipeline)）。
+  0.10 以前を切った経緯は [ADR-0028](docs/decisions/0028-pipeline-0.10-only.md)・[ADR-0025](docs/decisions/0025-pipeline-0.9-only.md)・ [ADR-0016](docs/decisions/0016-pipeline-0.8-only.md)・
   [ADR-0015](docs/decisions/0015-pipeline-0.7-only.md)・[ADR-0012](docs/decisions/0012-vendor-pipeline-internal-types.md)
 
 ## 版番号と対応する `com.unity.pipeline`
@@ -26,13 +28,14 @@ Claude Code プラグインと Unity 側パッケージは同じ版番号で揃�
 
 | `com.unity.pipeline` | 使うタグ |
 | --- | --- |
-| 0.10.x | `v0.10.0` |
+| 1.0.x | `v1.0.0`（`unity` CLI 1.0.0 以降） |
+| 0.10.x | `v0.10.0`（`unity` CLI 1.0.0-beta.15 以前） |
 | 0.9.x | `v0.9.2` |
 | 0.8.x | `v0.8.0` |
 
 プラグインと Unity 側パッケージは、必ず同じタグに揃えてください（両者は `unity cmd` のコマンド名・引数・応答の形で結合しています）。
-3 つの版（プラグイン・Unity 側パッケージ・`com.unity.pipeline`）が揃っていないと、スクリプトは「版の組み合わせが揃っていない
-可能性」という診断を出して終了コード 3 で止まります。
+3 つの版（プラグイン・Unity 側パッケージ・`com.unity.pipeline`）と `unity` CLI の版が揃っていないと、スクリプトは
+版のずれの診断（版の組み合わせを揃える、CLI を上げる、Unity 側パッケージを上げる、のいずれか）を出して終了コード 3 で止まります。
 
 ## インストール
 
@@ -88,20 +91,20 @@ https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity
 ### 版を固定してインストールする
 
 上の手順はどちらも既定ブランチの最新を入れます。特定の版に固定するには、
-[対応表](#版番号と対応する-comunitypipeline) で選んだタグ（以下は `v0.10.0` の例）を両方に付けます。
+[対応表](#版番号と対応する-comunitypipeline) で選んだタグ（以下は `v1.0.0` の例）を両方に付けます。
 
 プラグインは、マーケットプレイスの登録時に `#<タグ>` を付けます。プラグイン本体はマーケットプレイスと同じリポジトリから
 取り出されるため、これでプラグインもそのタグの版に固定されます。
 
 ```
-/plugin marketplace add WarlockReport/unity-cli-test-runner#v0.10.0
+/plugin marketplace add WarlockReport/unity-cli-test-runner#v1.0.0
 /plugin install wr-unity-cli-tools
 ```
 
 Unity 側パッケージは、git URL の末尾に `#<タグ>` を付けます（`Packages/manifest.json` に直接書いてもかまいません）。
 
 ```
-https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity#v0.10.0
+https://github.com/WarlockReport/unity-cli-test-runner.git?path=/unity#v1.0.0
 ```
 
 固定先のタグを変えるときは、マーケットプレイスは同じ名前で 2 つ登録できないため、一度削除してから新しいタグで登録し直します

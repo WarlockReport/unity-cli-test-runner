@@ -11,13 +11,12 @@
 # 使い方: summarize-test-result.sh <結果JSONファイル> <editmode|playmode>
 #
 # 入力（既存スクリプトの標準出力を保存したファイル）:
-#   editmode … run-editmode-test.sh / run-tests-batch-editmode.sh の出力
-#              （`unity cmd` のエンベロープ。summary は .data.result.Summary で PascalCase）
-#   playmode … run-playmode-test.sh / run-tests-batch-playmode.sh の出力
-#              （test status / wr.testrunner batch_test_status の .data.result をデコード済みの中身。
-#                summary は .summary で小文字、results[] 内だけ PascalCase）
-#   キーの大文字小文字混在は実測済みの罠（SKILL.mdステップ6参照）。どちらの形でも読めるよう
-#   候補パスを順に試し、キーは小文字へ正規化してから読む。
+#   editmode … run-editmode-test.sh / run-tests-batch-editmode.sh / run-tests-filtered-editmode.sh の出力
+#   playmode … run-playmode-test.sh / run-tests-batch-playmode.sh / run-tests-filtered-playmode.sh の出力
+#   どちらも同じ camelCase の形 {status, duration, summary:{total,passed,failed,skipped,inconclusive},
+#   results:[{fullName,status,duration,message,stackTrace}]}（com.unity.pipeline 1.0 の test status と同じ形）。
+#   モードは SUMMARY 行の表示にだけ使う。旧形式（.data.result のエンベロープ、PascalCase のキー）は読まない。
+#   読み違えた件数を報告するより、読めないことを明示する方が安全なため、exit 3 にする。
 #
 # 出力（標準出力。これをそのまま報告へ貼る）:
 #   SUMMARY mode=playmode total=89 passed=88 failed=1 skipped=0 inconclusive=0 duration=41.2
@@ -78,20 +77,27 @@ fi
 # 報告のSOURCE行に出す絶対パス。コントローラーが後から jq で裏取りするために使う。
 SOURCE_PATH="$(cd "$(dirname "$RESULT_FILE")" && pwd)/$(basename "$RESULT_FILE")"
 
-# summary オブジェクト。候補パスを順に試し、キーは小文字へ正規化する。
-summary="$(jq -c '
-  [
-    (try .data.result.Summary catch null),
-    (try .data.result.summary catch null),
-    (try .Summary catch null),
-    (try .summary catch null)
-  ]
-  | map(select(type == "object")) | first
-  | if . == null then empty else with_entries(.key |= ascii_downcase) end
-' "$RESULT_FILE")"
+# 旧形式（unity CLI 1.0 より前のエンベロープ、または旧版の PascalCase のキー）は読まない。
+legacy_reason="$(jq -r '
+  if type != "object" then empty
+  elif (.data | type) == "object" then ".data.result のエンベロープ（unity CLI 1.0 より前の形式）"
+  elif has("Summary") or has("Results") then "PascalCase の Summary / Results（旧版の形式）"
+  elif ((.results // [])[0] | type == "object" and has("FullName")) then "results[] の PascalCase のキー（旧版の形式）"
+  else empty end
+' "$RESULT_FILE" 2>/dev/null || true)"
+
+# summary オブジェクト（キーは total/passed/failed/skipped/inconclusive）。
+summary=""
+if [ -z "$legacy_reason" ]; then
+  summary="$(jq -c 'if type == "object" and (.summary | type) == "object" then .summary else empty end' "$RESULT_FILE")"
+fi
 
 if [ -z "$summary" ]; then
-  echo "summary を取り出せませんでした（候補: .data.result.Summary / .data.result.summary / .Summary / .summary）。件数を推測せず中断します。生JSONの先頭:" >&2
+  if [ -n "$legacy_reason" ]; then
+    echo "結果JSONが旧形式でした（${legacy_reason}）。このスクリプトは camelCase の結果だけを読みます。件数を推測せず中断します。生JSONの先頭:" >&2
+  else
+    echo "summary を取り出せませんでした（.summary が無い）。件数を推測せず中断します。生JSONの先頭:" >&2
+  fi
   head -c 500 "$RESULT_FILE" >&2
   echo >&2
   # SUMMARY/FAILは出せない（件数が分からないため）が、SOURCEだけは常に出す契約にする。
@@ -101,14 +107,8 @@ if [ -z "$summary" ]; then
   exit 3
 fi
 
-# duration は summary の親オブジェクトから読む（EditModeはエンベロープ配下）。
-# .data.result が非オブジェクト（文字列等）の場合にクラッシュしないよう try/catch で守る。
-# 非オブジェクトなら空オブジェクトにフォールバックし、duration は read_field の n/a に委ねる
-# （推測で埋めない原則を meta 抽出にも適用する）。
-meta="$(jq -c '
-  ((try .data.result catch null) // .)
-  | if type == "object" then with_entries(.key |= ascii_downcase) else {} end
-' "$RESULT_FILE")"
+# duration は結果オブジェクトの直下から読む。無ければ read_field の n/a に委ねる（推測で埋めない）。
+meta="$(jq -c 'if type == "object" then . else {} end' "$RESULT_FILE")"
 
 # 指定キーを読む。無ければ n/a（推測で埋めない）。
 read_field() {
@@ -125,26 +125,16 @@ printf 'SUMMARY mode=%s total=%s passed=%s failed=%s skipped=%s inconclusive=%s 
   "$(read_field inconclusive "$summary")" \
   "$(read_field duration "$meta")"
 
-# 失敗したテストの詳細。results[] のキーは両モードとも PascalCase だが、念のため小文字へ
-# 正規化して読む。Message/StackTrace は複数行になるため先頭行だけを出す（報告を短く保ち、
+# 失敗したテストの詳細。message/stackTrace は複数行になるため先頭行だけを出す（報告を短く保ち、
 # かつ原文のまま貼れるようにするため。全文は SOURCE の生JSONにある）。
-results="$(jq -c '
-  [
-    (try .data.result.Results catch null),
-    (try .data.result.results catch null),
-    (try .Results catch null),
-    (try .results catch null)
-  ]
-  | map(select(type == "array")) | first // []
-' "$RESULT_FILE")"
+results="$(jq -c 'if (.results | type) == "array" then .results else [] end' "$RESULT_FILE")"
 
 echo "$results" | jq -r '
   .[]
-  | with_entries(.key |= ascii_downcase)
   | select((.status // "Passed") != "Passed")
-  | ["FAIL " + (.fullname // "(FullName不明)")]
+  | ["FAIL " + (.fullName // "(fullName不明)")]
     + ((.message // "") | split("\n") | map(select(length > 0)) | .[0:1] | map("  " + .))
-    + ((.stacktrace // "") | split("\n") | map(select(length > 0)) | .[0:1] | map("  " + .))
+    + ((.stackTrace // "") | split("\n") | map(select(length > 0)) | .[0:1] | map("  " + .))
   | .[]
 '
 
@@ -153,9 +143,7 @@ echo "$results" | jq -r '
 # データより楽観的に見えるのを防ぐため、黙って通さず1行で明示する。
 # Skipped/Inconclusive は summary で別に数えられるので、比較は Failed のみに限る。
 failed_in_summary="$(read_field failed "$summary")"
-failed_in_results="$(echo "$results" | jq '
-  [.[] | with_entries(.key |= ascii_downcase) | select((.status // "") == "Failed")] | length
-')"
+failed_in_results="$(echo "$results" | jq '[.[] | select((.status // "") == "Failed")] | length')"
 
 if [ "$failed_in_summary" != "n/a" ] && [ "$failed_in_summary" != "$failed_in_results" ]; then
   echo "MISMATCH summary.failed=${failed_in_summary} results内のFailed=${failed_in_results} 結果JSONが不完全な可能性。SOURCEの生JSONを確認すること"

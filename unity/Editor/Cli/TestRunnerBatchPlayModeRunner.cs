@@ -109,13 +109,30 @@ namespace TestRunnerCli
 
                     // 短い書き込みが長い旧ファイルを上書きした場合、先頭の文書だけ読めて後ろに残骸が残る。
                     // それを現在のステータスとして返さないよう、文書の後ろが終端であることを確かめる
-                    return reader.Read() ? Malformed(text) : document;
+                    if (reader.Read())
+                    {
+                        return Malformed(text);
+                    }
+
+                    // 旧版（結果のキーが PascalCase）が書いたステータスファイルが Temp/ に残っていることがある。
+                    // 今の版のスクリプトは camelCase のキーしか読まないため、結果として返さず malformed とする
+                    return IsLegacyStatus(document) ? Malformed(text) : document;
                 }
             }
             catch (JsonReaderException)
             {
                 return Malformed(text);
             }
+        }
+
+        /// <summary>結果の要素が PascalCase の FullName キーを持つ（旧版の形式）かどうか。</summary>
+        private static bool IsLegacyStatus(JToken document)
+        {
+            return document is JObject obj
+                && obj["results"] is JArray results
+                && results.Count > 0
+                && results[0] is JObject first
+                && first.ContainsKey("FullName");
         }
 
         private static JObject Malformed(string text)

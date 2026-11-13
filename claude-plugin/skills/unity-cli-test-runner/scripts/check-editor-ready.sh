@@ -18,17 +18,18 @@
 # 一本化した。第1引数を渡した場合のみ `--project-path` として明示的に転送する（後方互換・明示指定用）。
 #
 # 終了コード:
-#   0  `unity cmd editor status` が成功し、状態(.data.result.status)が "ready"
+#   0  `unity cmd editor status` が成功し、状態(.status)が "ready"
 #   1  `unity cmd editor status` は成功したが、状態が "ready" 以外（生の値を標準出力に出す。
 #      未知の状態値を決め打ちで再試行せず報告する）
 #   2  `unity cmd editor status` コマンド自体が失敗/タイムアウトした（起動中エディタが見つからない、
 #      または未接続の場合を含む。Unity未起動または未接続。ドメインリロード中の一時的な切断は
 #      リトライ予算15秒以内で自動リトライ済みのため、ここに到達した場合は本当に未起動/未接続の
 #      可能性が高い）
-#   3  応答は得られたが、想定した形状(.data.result.status)でパースできなかった（防御的フォールバック。
+#   3  応答は得られたが、想定した形状(.status)でパースできなかった（防御的フォールバック。
 #      標準出力の生JSONを確認して手動判断する）。
 #      また、unity cmd がコマンドまたは引数を見つけられなかった場合（プラグイン・UPMパッケージ・com.unity.pipeline の
-#      版の組み合わせが揃っていない疑い。標準エラーに診断が出る。再試行せず版を揃えてもらう）もこの終了コードになる
+#      版の組み合わせが揃っていない疑い。unity CLI が 1.0.0 より古い場合を含む。標準エラーに診断が出る。
+#      再試行せず版を揃えてもらう）もこの終了コードになる
 
 set -euo pipefail
 
@@ -53,26 +54,19 @@ else
 fi
 exit_on_version_mismatch "$rc" "$raw"
 
-# 出力が完全に空なら、CLI呼び出し自体が失敗したか、応答前にタイムアウトした。
-# 後者はモーダルダイアログによるメインスレッドブロックでも起こるため、下の判別へ回せるよう
-# 空のJSONを詰めて処理を続ける（success != "true" の枝で判別する）。
-if [ -z "$raw" ]; then
-  raw='{"success":false,"errors":[{"message":"editor status の応答が得られませんでした（タイムアウトの可能性）"}]}'
-fi
+# unity CLI 1.0 は成功時に結果だけを出し、CLI 側の失敗（接続不能等）は {success:false, data:null, errors:[...]}
+# のエンベロープで出す。失敗の理由はエンベロープの errors[0].message から取る。
+if [ "$rc" -ne 0 ]; then
+  message="$(printf '%s' "$raw" | jq -r '.errors[0].message // empty' 2>/dev/null || true)"
 
-success="$(echo "$raw" | jq -r '.success // empty' 2>/dev/null || true)"
+  # unity CLI がモーダルダイアログ（終了コード 18）を報告した場合は、判別するまでもなくダイアログ
+  if [ "$rc" -eq 4 ]; then
+    echo "エディタは起動していますが、モーダルダイアログがメインスレッドを塞いでいます（unity CLI がダイアログを報告しました）。" >&2
+    echo "Unityエディタを確認し、開いているダイアログを閉じてもらってください（エディタの再起動は不要です）。${message:+（詳細: ${message}）}" >&2
+    echo "$raw"
+    exit 1
+  fi
 
-if [ "$success" != "true" ]; then
-  message="$(echo "$raw" | jq -r '.errors[0].message // empty' 2>/dev/null || true)"
-
-  # editor status は MainThreadRequired なので、モーダルダイアログでエディタのメインスレッドが
-  # 塞がっていると「未起動」と区別が付かない形で失敗する（実測: Unity 6000.3.14f1 +
-  # com.unity.pipeline 0.6.0-exp.1 では 503 busy ではなく単にタイムアウトする。0.6 の
-  # blocked_by_dialog 検出は「recent enough trunk build」が前提で、この版には入っていない）。
-  # メインスレッド不要のコマンドが応答するかどうかで両者を判別する（is_blocked_by_dialog、
-  # _lib.sh）。
-  #   応答する = Pipelineサーバーは生きている → メインスレッドだけが塞がれている（ダイアログ）
-  #   応答しない = 本当に未起動/未接続
   if is_blocked_by_dialog "$CLI_TIMEOUT"; then
     echo "エディタは起動していますが、メインスレッドが塞がっています（editor status は失敗する一方、メインスレッド不要の script recompile_status は正常応答しました）。" >&2
     echo "モーダルダイアログが開いたままになっている可能性が高いです。Unityエディタを確認し、開いているダイアログを閉じてもらってください（エディタの再起動は不要です）。${message:+（editor statusの詳細: ${message}）}" >&2
@@ -85,7 +79,7 @@ if [ "$success" != "true" ]; then
   exit 2
 fi
 
-state="$(echo "$raw" | jq -r '.data.result.status // empty' 2>/dev/null || true)"
+state="$(printf '%s' "$raw" | jq -r 'if type == "object" then (.status // empty) else empty end' 2>/dev/null || true)"
 
 if [ -z "$state" ]; then
   echo "unity cmd editor status の応答形式が想定と異なり、状態を判定できませんでした。以下の生JSONを確認してください:" >&2

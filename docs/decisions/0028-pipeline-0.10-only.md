@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-11-08)
+Accepted (2026-11-08)。0.10 系（v0.10.0）の記録。1.0 への対応は [ADR-0030](0030-cli-1.0-result-only-output.md)・[ADR-0031](0031-test-results-single-camelcase-shape.md)
 
 ## Context
 
