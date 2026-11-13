@@ -34,7 +34,7 @@
 #      また、unity cmd がコマンドまたは引数を見つけられなかった場合、editor status に codeLoadCount が
 #      無い場合（プラグイン・UPMパッケージ・com.unity.pipeline の版の組み合わせが揃っていない疑い。
 #      標準エラーに診断が出る。再試行せず版を揃えてもらう）もこの終了コードになる
-#   4  内部のunity cmd呼び出し（console clear/script recompile/editor statusのいずれか）
+#   4  unity CLI がモーダルダイアログ（終了コード 18）を報告した、または内部のunity cmd呼び出し（console clear/script recompile/editor statusのいずれか）
 #      が失敗/タイムアウトしたが、メインスレッド不要のscript recompile_statusは正常応答した
 #      （モーダルダイアログによるメインスレッドブロックの可能性が高い。真のハングではない）。
 #      .unity/.prefabファイルをUnity上で開いた状態のまま外部から変更すると、外部変更確認
@@ -45,14 +45,11 @@
 # - `unity cmd` は `--json` を付けない場合、TSV形式（`Command\tSuccess\tResult\tParameters`）で
 #   応答を返す。jqでパースする呼び出しには必ず `--json` を付けること（付け忘れると空文字列に
 #   フォールバックし続け、ポーリングが常にタイムアウトする）
-# - script recompile_status --json の data.result は 0.8 以降ネイティブなJSONオブジェクト（0.7 以前は
-#   JSON文字列として二重エンコードされていた。両方の形を extract_result_payload が受け付ける）。
-#   中身は {status, failed, errors, compilationFailed}。フィールドの取り出しは read_result_field が行う
-# - editor status --json / console get --json の data.result はネイティブなJSONオブジェクト
-#   （二重エンコードされていない）。editor statusは {status, compiling, domainReloadInProgress,
-#   playMode, codeLoadCount, ...}、console getは {entries, cursor, session, returned, dropped, reset,
-#   counts{...}, groundTruth{...}}
-# - script recompile / script recompile_status の data.result に含まれる compilationFailed は、Unityの
+# - unity CLI 1.0 の `--json` は結果だけを出す（エンベロープは無い。実地検証済み、2026-11-13）。
+#   script recompile_status は {status, failed, errors, compilationFailed}（フィールドの取り出しは read_result_field）、
+#   editor status は {status, compiling, domainReloadInProgress, playMode, codeLoadCount, ...}、
+#   console get は {entries, cursor, session, returned, dropped, reset, counts{...}, groundTruth{...}}
+# - script recompile / script recompile_status に含まれる compilationFailed は、Unityの
 #   ネイティブなコンパイル失敗フラグのサンプルが2秒以内のときだけ有効（古ければfalseに倒れる）。
 #   サンプリングはメインスレッドで動くため、ダイアログブロック中・ドメインリロード中は止まる
 # - com.unity.pipeline 0.6.0-exp.1 以降は、ドメインリロード中の一時的なダウンをサーバーがHTTP 503の
@@ -115,15 +112,15 @@ is_editor_ready_now() {
     return 1
   fi
   local compiling domain_reload
-  compiling="$(echo "$raw" | jq -r '.data.result.compiling' 2>/dev/null || true)"
-  domain_reload="$(echo "$raw" | jq -r '.data.result.domainReloadInProgress' 2>/dev/null || true)"
+  compiling="$(echo "$raw" | jq -r '.compiling' 2>/dev/null || true)"
+  domain_reload="$(echo "$raw" | jq -r '.domainReloadInProgress' 2>/dev/null || true)"
   [ "$compiling" = "false" ] && [ "$domain_reload" = "false" ]
 }
 
 # editor status の応答から codeLoadCount を読む。整数なら標準出力に出して 0、そうでなければ 1。
 read_code_load_count() {
   local raw="$1" count
-  count="$(echo "$raw" | jq -r '.data.result.codeLoadCount | if type == "number" and . == floor then tostring else empty end' 2>/dev/null || true)"
+  count="$(echo "$raw" | jq -r '.codeLoadCount | if type == "number" and . == floor then tostring else empty end' 2>/dev/null || true)"
   [ -n "$count" ] || return 1
   echo "$count"
 }
@@ -146,13 +143,21 @@ read_editor_status_once() {
   ES_RAW=""; ES_COMPILING=""; ES_DOMAIN_RELOAD=""; ES_COUNT=""
   if run_unity_cmd_capture editor status --json --timeout "$CLI_TIMEOUT"; then
     ES_RAW="$UNITY_CMD_OUT"
-    ES_COMPILING="$(echo "$ES_RAW" | jq -r '.data.result.compiling' 2>/dev/null || true)"
-    ES_DOMAIN_RELOAD="$(echo "$ES_RAW" | jq -r '.data.result.domainReloadInProgress' 2>/dev/null || true)"
+    if is_legacy_cli_envelope "$ES_RAW"; then
+      exit_on_version_mismatch 3 "$ES_RAW"
+    fi
+    ES_COMPILING="$(echo "$ES_RAW" | jq -r '.compiling' 2>/dev/null || true)"
+    ES_DOMAIN_RELOAD="$(echo "$ES_RAW" | jq -r '.domainReloadInProgress' 2>/dev/null || true)"
     ES_COUNT="$(read_code_load_count "$ES_RAW")" || exit_on_missing_code_load_count "$ES_RAW"
     return 0
   fi
-  if is_command_not_found "$UNITY_CMD_DIAG"; then
-    exit_on_version_mismatch 3 "$UNITY_CMD_OUT"
+  if [ "$UNITY_CMD_RC" = "13" ] || is_command_not_found "$UNITY_CMD_DIAG"; then
+    exit_on_version_mismatch 3 "${UNITY_CMD_OUT:-$UNITY_CMD_ERR}"
+  fi
+  if [ "$UNITY_CMD_RC" = "18" ]; then
+    # unity CLI 1.0 はモーダルダイアログを終了コード 18（EDITOR_BLOCKED_BY_DIALOG）で報告する
+    echo "editor status がダイアログブロック（unity CLI の終了コード 18）を返しました。モーダルダイアログによるメインスレッドブロックです（ハングではありません）。" >&2
+    return 3
   fi
   if is_busy_blocked_by_dialog "$UNITY_CMD_DIAG"; then
     # is_transient_failure より先に判定する。busyReason=blocked_by_dialog は
@@ -318,8 +323,8 @@ report_dialog_block_and_exit() {
   exit 4
 }
 
-# script recompile / script recompile_status の `.data.result` から1フィールドを読む。
-# 中身の取り出し（二重エンコード文字列／ネイティブJSONの両対応）は extract_result_payload（_lib.sh）が行う。
+# script recompile / script recompile_status の結果から1フィールドを読む。
+# 結果の取り出しは extract_result_payload（_lib.sh）が行う。
 # jq の `//` はfalseも「無い」と扱ってしまい failed=false を空文字列に潰すので、
 # 存在確認には has() を使う（jq 1.7.1 で実測）。
 # 取り出せない場合は空文字列を返し、呼び出し元が「判定不能」として扱えるようにする。
@@ -343,7 +348,7 @@ report_compile_failure_and_exit() {
 
   local console_raw entry_count
   if console_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" console get --level error --tail 20 --json)"; then
-    entry_count="$(echo "$console_raw" | jq -r 'if (.data.result.entries | type) == "array" then (.data.result.entries | length) else "unknown" end' 2>/dev/null || true)"
+    entry_count="$(echo "$console_raw" | jq -r 'if (.entries | type) == "array" then (.entries | length) else "unknown" end' 2>/dev/null || true)"
     if [ "$entry_count" = "0" ]; then
       echo "  console get のエラーエントリは0件でした（sticky/backfillの都合で詳細が欠けることがあります）。判定は script recompile_status に基づくため、成功にはしません。" >&2
     fi
@@ -360,6 +365,9 @@ report_compile_failure_and_exit() {
 echo "[1/5] console clear" >&2
 clear_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" console clear)" && rc=0 || rc=$?
 exit_on_version_mismatch "$rc" "$clear_raw"
+if [ "$rc" -eq 4 ]; then
+  report_dialog_block_and_exit
+fi
 if [ "$rc" -ne 0 ]; then
   if is_blocked_by_dialog "$CLI_TIMEOUT"; then
     report_dialog_block_and_exit
@@ -379,6 +387,9 @@ echo "[3/5] script recompile" >&2
 # 変更が無くコンパイルも走らないため、待っても状態は変わらない。待つ意味が無いので、そのまま詳細取得へ飛ばす。
 recompile_raw="$(run_unity_cmd_resilient "$CLI_TIMEOUT" "$ONESHOT_RETRY_BUDGET_SECONDS" script recompile --json)" && rc=0 || rc=$?
 exit_on_version_mismatch "$rc" "$recompile_raw"
+if [ "$rc" -eq 4 ]; then
+  report_dialog_block_and_exit
+fi
 if [ "$rc" -ne 0 ]; then
   if is_blocked_by_dialog "$CLI_TIMEOUT"; then
     report_dialog_block_and_exit

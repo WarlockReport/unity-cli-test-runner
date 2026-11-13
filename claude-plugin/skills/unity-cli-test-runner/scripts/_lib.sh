@@ -374,13 +374,14 @@ exit_on_unknown_selection() {
     exit 2
   fi
 
-  missing="$(printf '%s' "$raw" | jq -r \
+  # unity CLI 1.0 は test list の結果を 1 行 1 テストのストリームで出すので、-s で配列にまとめて読む
+  missing="$(printf '%s' "$raw" | jq -r -s \
     --arg assembly "$SEL_ASSEMBLY" \
     --arg excludes "$SEL_EXCLUDE" \
     --arg includeCats "$SEL_INCLUDE_CATEGORY" \
     --arg excludeCats "$SEL_EXCLUDE_CATEGORY" '
     def csv: if . == "" then [] else split(",") end;
-    (.data.result.Tests // []) as $all
+    (if all(.[]; type == "object" and has("FullName")) then . else error("unexpected test list shape") end) as $all
     | ($all | if $assembly == "" then . else map(select((.Assembly // "" | ascii_downcase) == ($assembly | ascii_downcase))) end) as $base
     | (if $assembly != "" and ($base | length) == 0 then ["アセンブリ: " + $assembly] else [] end)
       + [($excludes | csv)[] as $n
