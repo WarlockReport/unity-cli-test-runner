@@ -225,7 +225,7 @@ report_unity_cmd_failure() {
 # 有限のリトライ予算内でリトライし、それ以外の失敗は即座に呼び出し元へ返す。
 # 標準出力に生JSONを出す。終了コード:
 #   0  成功
-#   1  一時的ではない失敗（標準出力をそのまま出す。呼び出し元で内容を確認すること）。
+#   1  一時的ではない失敗（標準出力をそのまま出す。標準出力が空なら標準エラーを出す。呼び出し元で内容を確認すること）。
 #      unity CLI 1.0 は、失敗したテストを含む test status の完了や、自前コマンドの success:false の結果を
 #      終了コード 6 で返す。そのときも結果は標準出力に出ているので、呼び出し元は 1 でも中身を読んで判断する
 #      （呼び出しは $(...) のサブシェルで行われるため、unity cmd 自体の終了コードは呼び出し元に届かない）
@@ -267,7 +267,13 @@ run_unity_cmd_resilient() {
     fi
 
     if ! is_transient_failure "$UNITY_CMD_DIAG"; then
-      echo "$UNITY_CMD_OUT"
+      # unity CLI 1.0 は Pipeline 側のエラー（一致 0 件・引数の値の誤り等）を標準出力を空にして標準エラーに出すため、
+      # 標準出力が空なら標準エラーを返し、呼び出し元が理由を判定・表示できるようにする
+      if [ -n "$(printf '%s' "$UNITY_CMD_OUT" | tr -d '[:space:]')" ]; then
+        echo "$UNITY_CMD_OUT"
+      else
+        echo "$UNITY_CMD_ERR"
+      fi
       return 1
     fi
 
@@ -403,4 +409,163 @@ exit_on_unknown_selection() {
     echo "  除く名前はクラスかメソッドの完全名（FullName）で、引数付きのケースはメソッドの完全名で指定します。カテゴリ名は大文字小文字を区別します。" >&2
     exit 1
   fi
+}
+
+# Pipeline 本体のテストを `test run --async-tests` で起動し、`test status` をポーリングして結果を確定させる
+# （run-editmode-test.sh / run-playmode-test.sh の本体）。unity CLI 1.0 の同期 `test run` は summary の無い
+# 結果のストリームしか返さないため、EditMode も PlayMode と同じく test status の 1 オブジェクト
+# {status, duration, summary:{total,passed,failed,skipped,inconclusive}, results:[{fullName,status,duration,message,stackTrace}]}
+# で結果を読む。確定した test status のオブジェクトを標準出力に出し、戻らずに exit する。
+#
+# 終了コード:
+#   0  結果確定（status=completed、summary あり。PASS/FAIL は問わない。失敗テストを含む完了では unity CLI が
+#      終了コード 6 を返すが、結果は標準出力に出ているのでそのまま確定とする）
+#   1  指定した filter に一致するテストが無い（標準出力は空。test status が「0 件で完了」を返す。
+#      起動時に Pipeline が一致 0 件で拒否した場合も同じ）
+#   2  ハング・タイムアウト（ポーリング予算超過、unity cmd 呼び出し自体の失敗、一時的失敗の予算超過）、
+#      Unity 側で受理されなかった、summary を持たない終端状態（error / failed / cancelled、取り消しの終了コード 130）、
+#      またはモーダルダイアログ（unity CLI の終了コード 18）
+#   3  版の組み合わせのずれ、または完了は検知したが結果が信用できない（前回の結果と同一＝stale の疑い、
+#      testName の手がかりが結果に無い、summary を取り出せない）
+#
+# 使い方: run_pipeline_test_async <EditMode|PlayMode> <filter> <filter-type> <timeout秒> <ポーリング予算秒> <スクリプト名>
+run_pipeline_test_async() {
+  local mode="$1" filter="$2" filter_type="$3" timeout="$4" poll_budget="$5" script_name="$6"
+  local poll_interval=3 oneshot_budget=15
+  local baseline="" raw rc payload status message elapsed=0 normalized
+
+  echo "[1/4] test status でベースラインを取得（同一filter連続実行時のstale検知用）" >&2
+  # 失敗テストを含む完了は終了コード 6 で返るので、終了コードではなく中身で判断する
+  run_unity_cmd_capture test status --json --timeout "$timeout" >/dev/null 2>&1 || true
+  if payload="$(extract_result_payload "$UNITY_CMD_OUT")"; then
+    baseline="$(printf '%s' "$payload" | jq -cS .)"
+  else
+    echo "  ベースラインを取得できませんでした（セッション内で一度もテストを実行していない場合など正常系の可能性があります）。ベースライン無しで続行します。" >&2
+  fi
+
+  echo "[2/4] test run --mode ${mode} --filter ${filter} --filter-type ${filter_type} --async-tests" >&2
+  raw="$(run_unity_cmd_resilient "$timeout" "$oneshot_budget" test run --mode "$mode" --filter "$filter" --filter-type "$filter_type" --async-tests --json)" && rc=0 || rc=$?
+  exit_on_version_mismatch "$rc" "$raw"
+  case "$rc" in
+    0) ;;  # 受理（unity CLI 1.0 は受理時に何も出力しない）
+    4)
+      echo "${script_name}: モーダルダイアログがエディタを塞いでいます（unity CLI がダイアログを報告しました。ハングではありません）。Unityエディタを確認し、開いているダイアログを閉じてもらってください。" >&2
+      report_unity_cmd_failure "$raw"
+      exit 2
+      ;;
+    1)
+      if printf '%s' "$raw" | grep -qE "No [A-Za-z]+ tests matched"; then
+        echo "${script_name}: 指定した filter に一致するテストがありません（filter=${filter}、filter-type=${filter_type}）。実行はしていません。" >&2
+        printf '%s\n' "$raw" | sed 's/^/  /' >&2
+        exit 1
+      fi
+      echo "${script_name}: test run がUnity側で受理されませんでした。" >&2
+      report_unity_cmd_failure "$raw"
+      exit 2
+      ;;
+    *)
+      echo "${script_name}: test run のunity cmd呼び出し自体が失敗/タイムアウトしました（一時的なドメインリロード切断のリトライ予算超過を含む）。ハング・タイムアウト時の対応に従ってください。" >&2
+      report_unity_cmd_failure "$raw"
+      exit 2
+      ;;
+  esac
+
+  echo "[3/4] test status をポーリング（予算 ${poll_budget}秒）" >&2
+  status=""
+  payload=""
+  while [ "$elapsed" -lt "$poll_budget" ]; do
+    run_unity_cmd_capture test status --json --timeout "$timeout" >/dev/null 2>&1 && rc=0 || rc=$?
+    # 終了コード 6 = 失敗テストを含む完了、2 = 一致 0 件の完了（"No selected tests found."）、130 = 取り消し。
+    # どれも結果は標準出力に出ているので、まず中身を読む
+    if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ] || [ "$rc" -eq 2 ] || [ "$rc" -eq 130 ]; then
+      if payload="$(extract_result_payload "$UNITY_CMD_OUT")"; then
+        status="$(printf '%s' "$payload" | jq -r 'if type == "object" then (.status // empty) else empty end' 2>/dev/null || true)"
+        case "$status" in
+          completed)
+            normalized="$(printf '%s' "$payload" | jq -cS .)"
+            # 一致 0 件。--async-tests の起動は受理され、test status が「0 件で完了」を返す（実地検証済み、2026-11-13）。
+            # 同じ filter で続けて 0 件になると前回の結果と同一になるが、どちらにしても 0 件なので stale とは扱わない
+            if printf '%s' "$payload" | jq -e '.summary.total == 0' >/dev/null 2>&1; then
+              echo "${script_name}: 指定した filter に一致するテストがありません（filter=${filter}、filter-type=${filter_type}）。" >&2
+              [ -n "$UNITY_CMD_ERR" ] && printf '%s\n' "$UNITY_CMD_ERR" | sed 's/^/  /' >&2
+              exit 1
+            fi
+            # 完了状態だが前回と同一 = test run 発行前の古い結果をまだ読んでいる可能性が高い。
+            # 完了とみなさず待つ（予算内に新しい結果へ更新されれば抜ける。更新されなければ下の比較で exit 3）
+            if [ -n "$baseline" ] && [ "$normalized" = "$baseline" ]; then
+              :
+            else
+              break
+            fi
+            ;;
+          error|failed|cancelled)
+            message="$(printf '%s' "$payload" | jq -r '.message // .error // empty' 2>/dev/null || true)"
+            echo "${script_name}: test status が結果を持たない終端状態（status=${status}${message:+、${message}}）になりました。ハング・タイムアウト時の対応に従ってください。" >&2
+            printf '%s\n' "$payload"
+            exit 2
+            ;;
+        esac
+        if [ "$rc" -eq 130 ]; then
+          echo "${script_name}: テスト実行が取り消されました（unity CLI の終了コード 130）。" >&2
+          printf '%s\n' "$payload"
+          exit 2
+        fi
+      elif [ "$rc" -ne 0 ] && ! is_transient_failure "$UNITY_CMD_DIAG"; then
+        echo "${script_name}: test status が失敗しました。ハング・タイムアウト時の対応に従ってください。" >&2
+        report_unity_cmd_failure "${UNITY_CMD_OUT:-$UNITY_CMD_ERR}" "$UNITY_CMD_RC"
+        exit 2
+      fi
+      # 終了コード 0 で中身を読めない応答（空・途中で切れた JSON）は、ドメインリロード直前の書きかけとみなして待つ
+    elif [ "$rc" -eq 18 ]; then
+      echo "${script_name}: モーダルダイアログがエディタを塞いでいます（unity CLI の終了コード 18。ハングではありません）。Unityエディタを確認し、開いているダイアログを閉じてもらってください。" >&2
+      exit 2
+    elif [ "$rc" -eq 13 ] || is_command_not_found "$UNITY_CMD_DIAG"; then
+      exit_on_version_mismatch 3 "${UNITY_CMD_OUT:-$UNITY_CMD_ERR}"
+    elif ! is_transient_failure "$UNITY_CMD_DIAG"; then
+      echo "${script_name}: test status が失敗/タイムアウトしました。ハング・タイムアウト時の対応に従ってください。" >&2
+      report_unity_cmd_failure "${UNITY_CMD_OUT:-$UNITY_CMD_ERR}" "$UNITY_CMD_RC"
+      exit 2
+    fi
+    # PlayMode 突入直後などのドメインリロードによる一時的な切断・busy は、予算内で待ち続ける
+    sleep "$poll_interval"
+    elapsed=$((elapsed + poll_interval))
+  done
+
+  if [ "$status" != "completed" ]; then
+    echo "${script_name}: test status が${poll_budget}秒以内に完了状態になりませんでした（最終状態: ${status:-不明}）。ハング・タイムアウト時の対応に従ってください。" >&2
+    exit 2
+  fi
+
+  echo "[4/4] 結果の整合性チェック（ベースライン比較・filter文字列の手がかり確認）" >&2
+  if [ -n "$baseline" ] && [ "$normalized" = "$baseline" ]; then
+    echo "${script_name}: test status の結果が test run 発行前のベースラインと完全一致しました。新しい実行結果を確認できませんでした（同一filter連続実行時のstale結果の疑い）。" >&2
+    echo "  Unityコンソールログで InvalidOperationException(TestResultCollector.RunFinished) の有無を確認してください。" >&2
+    printf '%s\n' "$payload"
+    exit 3
+  fi
+
+  # filter 文字列の手がかり確認は testName のときだけ行う。test status の結果には filter 自体が含まれず、
+  # results[].fullName（名前空間.クラス.メソッド）しか手がかりが無い。assembly 指定ではアセンブリ名と名前空間が
+  # 一致しないプロジェクトで必ず不一致になり、category 指定ではカテゴリ名が結果に出ないため、どちらも正常な結果を
+  # 誤って exit 3 にしてしまう（別プロジェクトでのアセンブリ全体実行で、件数・集計とも正しいのに exit 3 になる事例を確認した）。
+  # testName の照合は Unity 側が大文字小文字を区別しない部分一致なので、こちらも -i で揃える。
+  if [ "$filter_type" = "testName" ]; then
+    if ! printf '%s' "$payload" | grep -qiF "$filter"; then
+      echo "${script_name}: test status の結果に指定filter「${filter}」の手がかりが見当たりません（異なるfilterへの取り違えの疑い）。" >&2
+      echo "  Unityコンソールログで InvalidOperationException(TestResultCollector.RunFinished) の有無を確認してください。" >&2
+      printf '%s\n' "$payload"
+      exit 3
+    fi
+  else
+    echo "  filter-type=${filter_type} は結果に filter 文字列が現れないため、手がかり確認を省略します（ベースライン比較のみ）。" >&2
+  fi
+
+  if ! printf '%s' "$payload" | jq -e '(.summary | type) == "object" and (.results | type) == "array"' >/dev/null 2>&1; then
+    echo "${script_name}: test status の結果から summary / results を取り出せませんでした（想定外の形）。" >&2
+    printf '%s\n' "$payload"
+    exit 3
+  fi
+
+  printf '%s\n' "$payload"
+  exit 0
 }
