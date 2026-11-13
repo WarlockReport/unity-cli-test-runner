@@ -2,6 +2,32 @@
 
 All notable changes to this package are documented in this file.
 
+## [1.0.0] - 2026-11-13
+
+### Changed
+
+- **`com.unity.pipeline` 1.0.0 以降専用にした**: `TestRunnerCli.asmdef` の `versionDefines` を `1.0.0` に上げた。
+  1.0 未満の Pipeline が入っているプロジェクトでは、本パッケージのコードはコンパイル対象から外れる。
+  0.10 を使い続ける場合は `#v0.10.0` に固定する（`unity` CLI も 1.0.0-beta.15 以前に戻す）
+- **（破壊的変更）`wr.testrunner` コマンドの応答のキーを camelCase にした**: Pipeline 1.0 の `test run` / `test status` に揃えた。
+  `Summary` → `summary`（`Total` → `total` 等）、`Results[]` → `results[]`（`FullName` → `fullName`、`Status` → `status`、
+  `Duration` → `duration`、`Message` → `message`、`StackTrace` → `stackTrace`）、`Duration` → `duration`、`Mode` → `mode`、
+  `FilterApplied` → `filterApplied`、`RequestId` → `requestId`。`batch_test_status` の `results[]` も camelCase になった
+- 同期の EditMode コマンド（`run_tests_batch_editmode` / `run_tests_filtered_editmode`）の結果に `status: "completed"` を付けた
+  （`test status` の完了状態と同じ形で読めるようにするため）
+- 旧版が書いた PascalCase のステータスファイル（`Temp/testrunner_cli_batch_status.json`）が残っていても、
+  `batch_test_status` はそれを結果として返さず `status: "malformed"` を返す
+
+### 同時に更新した Claude Code プラグイン（1.0.0）の変更
+
+- `unity` CLI 1.0.0 以降専用にした。CLI 1.0 の `--json` が結果だけを出す（エンベロープが無い）形を読み、
+  終了コード（12・13・17・18 等）で失敗の種類を判定する。古い CLI・旧版の UPM パッケージは版のずれ（終了コード 3）として案内する
+- `run-editmode-test.sh` も `test run --async-tests` + `test status` のポーリングで結果を読む（CLI 1.0 の同期 `test run` は
+  summary の無い結果しか返さないため）。すべてのスクリプトの出力が同じ camelCase の形になった
+- 一致するテストが無いとき、`run-editmode-test.sh` / `run-playmode-test.sh` は終了コード 1 を返す
+- 結果を持たない終端状態（error / cancelled）は、ポーリング予算を待たずに終了コード 2 を返す
+- モーダルダイアログ（unity CLI の終了コード 18）を、`ensure-compile-clean.sh` は終了コード 4、テスト実行スクリプトは終了コード 2 で報告する
+
 ## [0.10.0] - 2026-11-08
 
 ### Changed

@@ -16,9 +16,10 @@ description: Unity CLI（`~/.unity/bin/unity cmd`、Pipelineサーバー経由�
 
 ## 前提
 
-- 対象Unityプロジェクトの `com.unity.pipeline` は **0.10.0-exp.1 以降**であること。0.9 以前は
-  非対応（0.10 で引数名が kebab-case になり、コンパイル完了の判定に 0.10 で加わった `editor status` の
-  `codeLoadCount` を使うため。0.9 を使い続ける場合は README の版固定の手順に従う）
+- 対象Unityプロジェクトの `com.unity.pipeline` は **1.0.0 以降**、`unity` CLI は **1.0.0 以降**であること。
+  CLI 1.0 は `--json` の出力から `success`/`data`/`target` の外枠（エンベロープ）を外して結果だけを出し、
+  Pipeline 1.0 はテスト結果のキーを camelCase にした。スクリプトはこの形だけを読む（古い CLI・古い UPM パッケージでは
+  終了コード 3 で版のずれを報告する）。0.10 を使い続ける場合は README の版固定の手順に従う
 - 各コマンドには必ず明示的な `--timeout <秒>` を付ける
 - エディタの起動確認はワークフローのステップ0（`${CLAUDE_SKILL_DIR}/scripts/check-editor-ready.sh`）で行う
 - 本ドキュメントのコマンドに書かれたパスは、スキルの読み込み時にこのスキルのディレクトリの絶対パスへ
@@ -57,10 +58,10 @@ ${CLAUDE_SKILL_DIR}/scripts/check-editor-ready.sh
 | 終了コード | 意味 | 対応 |
 | --- | --- | --- |
 | 0 | 起動中エディタが見つかり status が ready | 次のステップ（コンパイル状態の確定）へ進む |
-| 1 | 起動中エディタは見つかったが status が ready 以外、**またはメインスレッドがモーダルダイアログで塞がれている** | 標準エラー出力の内容をそのまま報告する。ダイアログブロックと判定された場合は、エディタの再起動ではなく**開いているダイアログを閉じてもらう**よう依頼する（下記「ダイアログブロックの判別」参照） |
+| 1 | 起動中エディタは見つかったが status が ready 以外、**またはメインスレッドがモーダルダイアログで塞がれている**（unity CLI がダイアログを報告した場合を含む） | 標準エラー出力の内容をそのまま報告する。ダイアログブロックと判定された場合は、エディタの再起動ではなく**開いているダイアログを閉じてもらう**よう依頼する（下記「ダイアログブロックの判別」参照） |
 | 2 | 起動中エディタが見つからない、リトライ予算（15秒）を使い切ってもなお `unity cmd editor status` が失敗/タイムアウト | Unityエディタが起動していないか未接続。ユーザーに手動起動を依頼する（ドメインリロード中の一時的な切断も、ダイアログブロックもスクリプト内部で判別済みなので、ここに到達した場合は本当に未起動/未接続の可能性が高い） |
 | 3 | 応答は得られたが想定した形式でパースできなかった | 標準出力の生JSONを確認して手動判断する |
-| 3 | `unity cmd` がコマンドまたは引数を見つけられなかった（標準エラーに「版の組み合わせが揃っていない可能性」の診断が出る） | 再試行しない。プラグイン・UPMパッケージ・`com.unity.pipeline` の版の組み合わせが揃っていない。README の「版番号と対応する com.unity.pipeline」の表で版を揃えるようユーザーに伝える |
+| 3 | `unity cmd` がコマンドまたは引数を見つけられなかった、または `unity` CLI が 1.0.0 より古い（標準エラーに版のずれの診断が出る） | 再試行しない。プラグイン・UPMパッケージ・`com.unity.pipeline`・`unity` CLI の版の組み合わせが揃っていない。標準エラーの案内（CLI を上げる／版を揃える）をそのままユーザーに伝える |
 
 **ダイアログブロックの判別（実測済み、2026-09-06）**: `editor status` は `MainThreadRequired` なので、
 モーダルダイアログでエディタのメインスレッドが塞がれていると「未起動」と区別が付かない形で失敗する。
@@ -78,6 +79,8 @@ ${CLAUDE_SKILL_DIR}/scripts/check-editor-ready.sh
 （実測、2026-10-24、Unity 6000.3.25f1 + 0.9.1-exp.1: `editor status` は busy 応答ではなく
 `Pipeline command 'editor' timed out after 30000ms`（`unity cmd` の終了コード 6）でタイムアウトし、
 `script recompile_status` は応答し続ける）。
+`unity` CLI 1.0 の changelog には、モーダルダイアログを終了コード 18（`EDITOR_BLOCKED_BY_DIALOG`）で報告するとある
+（未実測）。スクリプトはこれを受け取ったら上の判別を待たずにダイアログと扱う。
 
 ### 1. コンパイル状態の確定
 
@@ -112,7 +115,7 @@ ${CLAUDE_SKILL_DIR}/scripts/ensure-compile-clean.sh
 | 2 | ポーリング予算超過（`unity cmd`呼び出し自体の失敗を含む） | 「ハング・タイムアウト時の対応」に従う（盲目的に再試行しない） |
 | 3 | `script recompile_status` から `failed`/`compilationFailed` を取り出せず判定不能（`console get` の応答が想定外なだけなら、判定は済んでいるので exit 3 ではなく exit 1 になる） | 標準出力の生JSONを確認して手動判断する |
 | 3 | `unity cmd` がコマンドまたは引数を見つけられなかった、または `editor status` に `codeLoadCount` が無かった（標準エラーに「版の組み合わせが揃っていない可能性」の診断が出る） | 再試行しない。プラグイン・UPMパッケージ・`com.unity.pipeline` の版の組み合わせが揃っていない。README の「版番号と対応する com.unity.pipeline」の表で版を揃えるようユーザーに伝える |
-| 4 | 内部の`unity cmd`呼び出し（`console clear`/`script recompile`/`editor status`のいずれか）が失敗したが、メインスレッド不要の `script recompile_status` は正常応答した（モーダルダイアログによるメインスレッドブロックの可能性が高い。**真のハングではない**） | ユーザーにダイアログを閉じてもらうよう依頼する（エディタの再起動は不要）。`.unity`/`.prefab`ファイルをUnity上で開いた状態のまま外部から変更すると、外部変更確認（Reload/Ignore等）のダイアログが表示されこの状態になることが多い（下記「既知の罠」参照） |
+| 4 | `unity` CLI がモーダルダイアログ（終了コード 18）を報告した、または内部の`unity cmd`呼び出し（`console clear`/`script recompile`/`editor status`のいずれか）が失敗したが、メインスレッド不要の `script recompile_status` は正常応答した（モーダルダイアログによるメインスレッドブロックの可能性が高い。**真のハングではない**） | ユーザーにダイアログを閉じてもらうよう依頼する（エディタの再起動は不要）。`.unity`/`.prefab`ファイルをUnity上で開いた状態のまま外部から変更すると、外部変更確認（Reload/Ignore等）のダイアログが表示されこの状態になることが多い（下記「既知の罠」参照） |
 
 **注意（実測済み、既知の罠も参照）**: コンパイル完了直後の1〜2秒間、ドメインリロード（アセンブリの
 再読み込み）によりUnity側のPipelineサーバーが一時的にダウンし、`unity cmd` が
@@ -141,9 +144,9 @@ exit 2を受け取った時点で追加の直接確認を行う必要はない�
 やり直さない）。`test list --mode EditMode`/`test list --mode PlayMode` は対象リストに必要な
 モードのみ、それぞれ1回ずつ呼べばよい。
 
-`test list --mode <Mode> --json` の応答は `.data.result.Tests` が配列で、各要素が
-`{FullName, Mode, Assembly, Categories, Explicit}` を持つ（実地検証済み、2026-08-21。
-`jq -r '.data.result.Tests[] | select(.FullName == "<対象>")'` で特定の `FullName` を検索できる）。
+`test list --mode <Mode> --json` の応答は、1 行に 1 テストのオブジェクトが並ぶ形で、各要素が
+`{FullName, Mode, Assembly, Categories, Explicit}` を持つ（キーは PascalCase のまま。unity CLI 1.0 で実地検証済み、2026-11-13。
+`jq -c 'select(.FullName == "<対象>")'` で特定の `FullName` を検索でき、配列として扱いたいときは `jq -s` でまとめる）。
 `Mode` は各要素に個別に入っており、`--mode EditMode` で呼んでも `--mode PlayMode` で呼んでも
 その呼び出しで実際に存在したテストしか返らない点に注意（存在しなければ配列に現れない）。
 
@@ -169,7 +172,7 @@ exit 2を受け取った時点で追加の直接確認を行う必要はない�
   - **クラス名で絞り込む場合、単純な部分一致（`contains`）でgrepしてはならない。** `FullName` は
     `Namespace.ClassName.MethodName` の形式でドット区切りのため、`ClassName` がクラス境界
     （前後がドット、またはクラス名が文字列の先頭）で一致するかを確認すること（例:
-    `jq -r --arg c "ClassName" '.data.result.Tests[] | select((.FullName | split(".")) as $p | $p[-2] == $c)'`、
+    `jq -r --arg c "ClassName" 'select((.FullName | split(".")) as $p | $p[-2] == $c)'`、
     またはgrepなら `\.ClassName\.` のように前後にドットを含むパターンを使う）。単純な部分一致では、
     対象クラス名が別クラス名の末尾に含まれるだけのケース（例: `FooTest` を検索したつもりが
     `BarFooTest` のメソッドまで一致してしまう）で候補数を誤カウントする
@@ -184,7 +187,7 @@ exit 2を受け取った時点で追加の直接確認を行う必要はない�
     メソッドの `FullName` を渡すと、そのメソッドの全ケースが実行される（実地検証済み、2026-10-25）。
     特定のケースだけに絞った実行はできない。対象が他のテストと混在していても、アセンブリ全体の実行に
     切り替える必要はない
-    （例: `jq -r '.data.result.Tests[].FullName | sub("\\([^()]*\\)$"; "")' | sort -u`）
+    （例: `jq -r '.FullName | sub("\\([^()]*\\)$"; "")' | sort -u`）
   - 0件: 誤字や存在しないテスト名の可能性を報告する
   - 1件: そのまま次へ（ステップ5ではその1件の `FullName` をバッチスクリプトに渡す）
   - 1アセンブリの全件に一致: ステップ5で `--filter-type assembly` を使う。ただし `assembly` も部分一致
@@ -258,8 +261,9 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-batch-editmode.sh <カンマ区切りFullN
 ${CLAUDE_SKILL_DIR}/scripts/run-tests-batch-playmode.sh <カンマ区切りFullName> [timeout] [ポーリング予算秒数] > "$OUT"
 ```
 
-EditMode のバッチは同期応答で、生のレスポンスJSONを標準出力に返す。PlayMode のバッチは非同期実行から
-`wr.testrunner batch_test_status` の完了確認までを1コマンドにまとめ、最終結果JSONを返す。どちらもテスト起動直後の
+EditMode のバッチは同期応答で、結果JSONを標準出力に返す。PlayMode のバッチは非同期実行から
+`wr.testrunner batch_test_status` の完了確認までを1コマンドにまとめ、最終結果JSONを返す。結果の形はどちらも同じ
+（ステップ6参照）。どちらもテスト起動直後の
 ドメインリロードによる一時的なPipeline切断（「既知の罠」参照）を有限予算のリトライで吸収する。
 
 どちらのバッチスクリプトも、括弧を含む名前（引数付きケースの `FullName`）を受け取ると、実行せずに
@@ -276,10 +280,17 @@ ${CLAUDE_SKILL_DIR}/scripts/run-editmode-test.sh <アセンブリ名> assembly [
 ${CLAUDE_SKILL_DIR}/scripts/run-playmode-test.sh <アセンブリ名> assembly [timeout] [ポーリング予算秒数] > "$OUT"
 ```
 
-`run-playmode-test.sh` は `test run --async-tests` の実行から `test status` の完了確認・結果の簡易整合性
-チェックまでを1コマンドにまとめる（詳細は同スクリプトのヘッダコメント参照）。標準出力の最終結果
-JSON（`test status`由来。`status`/`duration`/`summary`/`results`を含む。EditModeの`test run`直接
-呼び出しとはキーの大文字小文字が異なる点に注意。詳細はステップ6参照）をステップ6の結果確認に使う。
+`run-editmode-test.sh` / `run-playmode-test.sh` はどちらも `test run --async-tests` の実行から `test status` の
+完了確認・結果の簡易整合性チェックまでを1コマンドにまとめる（詳細は同スクリプトのヘッダコメント参照）。
+unity CLI 1.0 の同期 `test run` は summary の無い結果しか返さないため、EditMode も非同期で起動する。
+標準出力の最終結果JSON（`test status`由来。形はステップ6参照）をステップ6の結果確認に使う。
+
+| 終了コード | 意味 | 対応 |
+| --- | --- | --- |
+| 0 | 結果確定（PASS/FAIL は問わない） | ステップ6へ |
+| 1 | 指定したアセンブリ（filter）に一致するテストが無い。実行していない（標準出力は空） | 推測で名前を直して再実行しない。一致しなかったことをそのまま報告し、ステップ2の `test list` で名前を確かめる |
+| 2 | ハング・タイムアウト、Unity 側で受理されなかった、結果を持たない終端状態（error / cancelled 等）、またはモーダルダイアログ（標準エラーに「ダイアログ」と出る） | 「ハング・タイムアウト時の対応」に従う。ダイアログならダイアログを閉じてもらう |
+| 3 | 版の組み合わせのずれ、または結果が信用できない（前回の結果と同一＝stale の疑い、summary を取り出せない） | 再試行しない。版ずれなら標準エラーの案内をそのまま伝える。stale の疑いなら標準出力の JSON を確認して報告する |
 
 **除く名前・カテゴリで絞り込む場合**: アセンブリ・含めるカテゴリ・除くカテゴリ・除く名前を組み合わせて、
 1 回の呼び出しで実行する。名前・カテゴリ・アセンブリはすべて完全一致で照合され、名前の先頭が同じ別クラス・
@@ -312,8 +323,8 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
 | --- | --- | --- |
 | 0 | 結果確定（PASS/FAIL は問わない）。0 件だった場合も 0（標準エラーに「0 件でした」と出る） | ステップ6へ。0 件なら、含める条件と除く条件の組み合わせで何も残らなかったことをそのまま報告する |
 | 1 | 実行していない。絞り込み条件が無い、除く名前に引数付きケースの `FullName`（括弧を含む名前）がある、または指定した名前（アセンブリ・除く名前・カテゴリ）が `test list` に見つからない（標準エラーに列挙される） | 推測で名前を直して再実行しない。見つからない名前をそのまま報告し、正しい名前を確認する（引数付きケースはメソッドの `FullName` に置き換えてよい） |
-| 2 | 使い方の誤り（未知の引数・値の欠落）、ハング・タイムアウト、または Unity 側で受理されなかった | 使い方の誤りなら引数を直す。それ以外は「ハング・タイムアウト時の対応」に従う |
-| 3 | 版の組み合わせのずれ（コマンドまたは引数が見つからない、PlayMode の起動応答に `RequestId` が無い）、`test list` の応答が想定外の形、または PlayMode の結果が別の実行のもの（完了ステータスの `requestId` が起動応答と一致しない） | 再試行しない。版ずれなら README の表で版を揃えるよう伝える。stale の疑いなら標準出力の JSON を確認して報告する |
+| 2 | 使い方の誤り（未知の引数・値の欠落）、ハング・タイムアウト、Unity 側で受理されなかった、結果を持たない終端状態（error / cancelled）、またはモーダルダイアログ | 使い方の誤りなら引数を直す。それ以外は「ハング・タイムアウト時の対応」に従う |
+| 3 | 版の組み合わせのずれ（コマンドまたは引数が見つからない、`unity` CLI が古い、UPM パッケージが旧版で応答のキーが PascalCase、PlayMode の起動応答に `requestId` が無い）、`test list` の応答が想定外の形、または PlayMode の結果が別の実行のもの（完了ステータスの `requestId` が起動応答と一致しない） | 再試行しない。版ずれなら README の表で版を揃えるよう伝える。stale の疑いなら標準出力の JSON を確認して報告する |
 
 - `run-editmode-test.sh` / `run-playmode-test.sh` の第2引数に `testName` を使わない（部分一致で
   別クラス・別メソッドを巻き込む。「既知の罠」参照）
@@ -321,10 +332,11 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
   する（`test list` 等の照会系は `30`）。PlayMode のスクリプトの `timeout` 引数も同様の目安、
   ポーリング予算秒数（既定90）は対象規模に応じて調整してよい
 
-いずれの実行スクリプトも、標準エラーに「版の組み合わせが揃っていない可能性」の診断を出して終了コード 3 で
-終わった場合は、`unity cmd` がコマンドまたは引数を見つけられなかった（プラグイン・UPMパッケージ・`com.unity.pipeline`
-の版の組み合わせが揃っていない）ことを示す。再試行せず、README の「版番号と対応する com.unity.pipeline」の
-表で版を揃えるようユーザーに伝える。
+いずれの実行スクリプトも、標準エラーに版のずれの診断を出して終了コード 3 で終わった場合は、
+プラグイン・UPMパッケージ・`com.unity.pipeline`・`unity` CLI の版の組み合わせが揃っていないことを示す
+（コマンドまたは引数が見つからない、CLI が古い、UPM パッケージが古い、のどれかを診断が名指しする）。
+再試行せず、診断の案内（README の「版番号と対応する com.unity.pipeline」の表で版を揃える、CLI を上げる等）を
+そのままユーザーに伝える。
 
 **複数グループがある場合の失敗時の扱い**: テストのPass/Failは通常の結果として扱い、他のグループの
 実行を止めない。`unity cmd` 呼び出し自体のハング・タイムアウトは「ハング・タイムアウト時の対応」に
@@ -338,14 +350,11 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
 `run-playmode-test.sh`/`run-tests-batch-playmode.sh`/`run-tests-filtered-playmode.sh`（PlayMode）の出力を確認する
 （絞り込み実行の出力の形は、それぞれ同じ Mode のバッチ実行と同じ）。
 
-- EditModeの小規模実行はレスポンスに結果が同期的に含まれる（実地確認済み）。キーは
-  `Summary.Total/Passed/Failed`、`Results[].FullName/Status/Message/StackTrace`（PascalCase）
-- PlayModeは `run-playmode-test.sh` の標準出力JSONを結果源とする。同スクリプトが `test status` の
-  完了確認まで済ませてから結果を返すため、追加のポーリングは不要。ただしこのJSONは`test status`
-  由来（`.data.result` をデコードした中身のオブジェクト）であり、EditMode直呼び出しとはキーの
-  大文字小文字が異なる（実地検証済み、2026-08-11）: `status`・`duration`・
-  `summary.total/passed/failed/skipped/inconclusive` は小文字、`results[].FullName/Status/
-  Duration/Message/StackTrace` はPascalCase、という混在になる
+- どのスクリプトの出力も同じ camelCase の形: `status`・`duration`・
+  `summary.total/passed/failed/skipped/inconclusive`・`results[].fullName/status/duration/message/stackTrace`
+  （`com.unity.pipeline` 1.0 の `test status` と同じ形。自前コマンドの出力には `success`・`mode`・`filterApplied`・
+  `requestId`・`message` も加わる。実地検証済み、2026-11-13）
+- 各スクリプトが完了確認まで済ませてから結果を返すため、追加のポーリングは不要
 
 報告文は自分で組み立てず、`scripts/summarize-test-result.sh` に生成させる。ステップ5で保存した
 `$OUT`（複数グループなら各グループの `$OUT`）をそのまま使う。**テストをここで再実行しない。**
@@ -363,7 +372,7 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
 | 行 | 意味 |
 | --- | --- |
 | `SUMMARY mode=… total=… passed=… failed=… skipped=… inconclusive=… duration=…` | 集計。応答に無いフィールドは `n/a` |
-| `FAIL <FullName>` ＋ インデント2行 | 失敗した各テストの `Message`・`StackTrace` の先頭行 |
+| `FAIL <fullName>` ＋ インデント2行 | 失敗した各テストの `message`・`stackTrace` の先頭行 |
 | `MISMATCH summary.failed=… results内のFailed=…` | 集計と個別結果が食い違っている。結果JSONが不完全な可能性があり、鵜呑みにしない |
 | `SOURCE <絶対パス>` | 生JSONの保存先。呼び出し元が `jq` で裏取りできる |
 
@@ -393,10 +402,11 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
 `unity-test-runner`サブエージェント）が追加で `editor status` を直接確認したり、確認なしに再実行
 したりする必要はない。真のハングとしてそのままユーザーに報告してよい。
 
-**`exit 4` はこの節の対象外（真のハングではない）**: `ensure-compile-clean.sh` は `editor status`
-が失敗した際、メインスレッド不要の `script recompile_status` で生死判定を行い、応答があれば
-「Pipelineサーバーは生きていてメインスレッドだけがダイアログで塞がれている」と確定させたうえで
-`exit 4` を返す（ステップ0の「ダイアログブロックの判別」と同じ仕組み）。この場合は `test cancel`
+**`exit 4` はこの節の対象外（真のハングではない）**: `ensure-compile-clean.sh` は `unity` CLI がモーダルダイアログ
+（終了コード 18）を報告したとき、または `editor status` が失敗した際にメインスレッド不要の `script recompile_status`
+で生死判定を行って応答があったとき、「Pipelineサーバーは生きていてメインスレッドだけがダイアログで塞がれている」と
+確定させたうえで `exit 4` を返す（ステップ0の「ダイアログブロックの判別」と同じ仕組み）。テスト実行スクリプトは
+同じ状況を終了コード 2 で、標準エラーに「ダイアログ」と出して報告する。この場合は `test cancel`
 の要否判断や接続確認は不要で、単に「ダイアログを閉じてください」とユーザーに依頼し、閉じてもらった
 ことを確認してから通常どおり再実行してよい（原因解消後の再実行なので「盲目的な再試行」には
 当たらない）。
@@ -434,9 +444,9 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
   `test list` で得た完全一致の `FullName` の一覧を `wr.testrunner run_tests_batch_editmode`/`wr.testrunner run_tests_batch_playmode`
   （`Filter.testNames` 配列に完全一致名を直接詰める専用コマンド。実測で完全一致を確認済み）に
   スクリプト経由で渡して行う
-- `--filter-type testName` に**カンマ区切りで複数の完全名を渡すと、エラーにならず `success:true` のまま
-  `Summary.Total:0` で静かに空振りする**（実地検証済み。部分一致の照合でカンマを含む `FullName` が
-  存在しないため）。複数の完全名の集合はバッチスクリプトで実行する
+- `--filter-type testName` に**カンマ区切りで複数の完全名を渡すと、どのテストにも一致しない**（部分一致の照合で
+  カンマを含む `FullName` が存在しないため。0.10 以前は `success:true` のまま 0 件で静かに空振りした。
+  1.0 では「一致 0 件」として扱われる）。複数の完全名の集合はバッチスクリプトで実行する
 - 引数付きのケース（`[TestCase]` 等）の `FullName` は、NUnit が引数をカンマ区切りで名前に入れる
   （`Ns.Class.Method(First,2)`）。バッチ実行の一覧もカンマ区切りなので、ケースの `FullName` を渡すと
   名前の途中で割れ、どのテストにも一致しない断片になる。EditMode ではエラーにならず、そのケースだけが
@@ -468,6 +478,10 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
   当たるケースも、上記スクリプト経由であれば `run_unity_cmd_resilient`（有限予算の単発リトライ）
   で自動的に吸収される。ただし、これらのスクリプトを介さず `unity cmd` を直接叩いた
   際にこのメッセージに遭遇した場合は、「未接続」と即断せず数秒待って再試行すること
+- `unity` CLI 1.0 では、同じ瞬断が終了コード 6 の `the Editor closed the connection without answering`
+  （または `... before the command finished`）と、終了コード 12 の `No Pipeline instance found for project: ...`
+  （`EDITOR_NOT_RUNNING`）で現れる（実地検証済み、2026-11-13）。どちらも未起動という意味ではなく、上記スクリプトは
+  一時的失敗としてリトライする。CLI 1.0 の changelog にある busy（終了コード 17、`EDITOR_BUSY`）も一時的失敗として扱う（未実測）
 - `com.unity.pipeline` 0.9 では、同じ瞬断が別の文言で現れることがある（実地検証済み、2026-10-24）。
   `UNITY_PROJECT_PATH` で接続先を固定していると、再コンパイル中に
   `No Pipeline instance found for project: <パス>. Make sure Unity Editor is running ...` で失敗する
@@ -487,12 +501,14 @@ ${CLAUDE_SKILL_DIR}/scripts/run-tests-filtered-playmode.sh [--assembly <アセ�
   この非対称性がダイアログブロックの実用的な判別方法であり、`check-editor-ready.sh` に実装済み
   （ステップ0の「ダイアログブロックの判別」参照）。
   なお `busyReason="settling"`（起動直後）の方は版に関わらず有効なので、busy検出自体は無駄ではない
-- `script recompile_status` / `test status` の `data.result` は、`com.unity.pipeline` 0.8 以降ネイティブなJSON
-  オブジェクトで返る（0.7 以前はJSON文字列として二重エンコードされ、`jq '.data.result | fromjson'` が
-  必要だった）。本パッケージの `wr.testrunner batch_test_status` も現行版では同じくネイティブなJSONを返す。スクリプトは
-  どちらの形も受け付けるので（プラグインとUPMパッケージは別々に更新されうるため）、`unity cmd` を手で叩いて
-  確かめるときも両方の形がありうると考えること。どちらの場合もトップレベルに `.status` が直接あるわけでは
-  なく、`.data.result.status` にある
+- `unity` CLI 1.0 の `--json` は結果だけを出す（`success`/`command`/`data`/`target` のエンベロープは無い。
+  実地検証済み、2026-11-13）。`script recompile_status` / `test status` / `editor status` などはトップレベルに
+  `.status` が直接ある。配列を返すコマンド（`test list`）は 1 行 1 オブジェクトで出る。エンベロープの形
+  （`{success:false, data:null, errors:[...]}`）で出るのは、接続不能・切断など CLI 側のエラーだけ。
+  コマンドが見つからない（終了コード 13）・引数の誤り（終了コード 2）は標準出力が空で、理由は標準エラーに平文で出る
+- `unity` CLI 1.0 は、失敗したテストを含む `test status` の完了や、自前コマンドの `success:false` の結果を終了コード 6 で返す。
+  一致するテストが 0 件の完了は終了コード 2（`No selected tests found.`）。どれも結果は標準出力に出ているので、
+  スクリプトは終了コードではなく中身で判断している。`unity cmd` を手で叩いたときも、終了コードだけで「失敗」と読まないこと
 - ステップ2でクラス名を単純な部分一致（`contains`）でgrepすると、対象クラス名が別クラス名の末尾に
   含まれるだけのケースを誤って候補に含めてしまう（実地確認済み、2026-08-22。別プロジェクトでの
   検証中に、`FooTest`を検索したところ無関係な`BarFooTest`のメソッドまで一致し、候補数を誤カウント
