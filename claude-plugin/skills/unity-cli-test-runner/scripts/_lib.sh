@@ -32,6 +32,15 @@
 #    （ジョブの場合は "Too Many Queued Jobs"）を返す。retryable は付かないが、先行するコマンドが
 #    捌ければ解消するのでリトライしてよい。
 #
+# unity CLI 1.0.0 では、CLI 側のエラーは {success:false, data:null, errors:[{code, message}]} の形で標準出力に出て、
+# 終了コードでも種類が分かる（実地検証済み、2026-11-13）:
+#   ドメインリロード中の切断 … 終了コード 6、"the Editor closed the connection without answering" または
+#                              "the Editor closed the connection before the command finished"
+#   エディタが見つからない   … 終了コード 12（EDITOR_NOT_RUNNING。リロード中の瞬断でも出る）
+# CLI の changelog には、busy（読み込み中・コンパイル中・リロード中・同時実行の上限超過）が終了コード 17（EDITOR_BUSY）、
+# モーダルダイアログが終了コード 18（EDITOR_BLOCKED_BY_DIALOG）とある。どちらも未実測。17 は一時的失敗として扱い、
+# 18 はリトライしても解消しないので、run_unity_cmd_resilient が専用の戻り値（4）で即座に返す。
+#
 # 逆に「コマンドまたは引数が見つからない」応答（Command Not Found / No command named ... / has no parameter --...）は一時的失敗ではない。
 # プラグイン・UPMパッケージ・com.unity.pipeline の版の組み合わせが揃っていないときに起き、
 # リトライしても解消しない（is_command_not_found で判定し、一時的失敗の判定より先に見る）。
@@ -43,7 +52,7 @@
 
 is_transient_pipeline_unreachable() {
   local raw="$1"
-  echo "$raw" | grep -qE "No Unity Editor instances found with reachable Pipeline servers|No Pipeline instance found for project|Network error: An error occurred while sending the request|Invalid response format from Pipeline server"
+  echo "$raw" | grep -qE "No Unity Editor instances found with reachable Pipeline servers|No Pipeline instance found for project|Network error: An error occurred while sending the request|Invalid response format from Pipeline server|the Editor closed the connection|\"code\"[[:space:]]*:[[:space:]]*\"EDITOR_NOT_RUNNING\""
 }
 
 # 0.6以降のbusy応答を検出する。`unity` CLIが503応答をどう整形するかは版によって異なりうるため、
@@ -52,7 +61,7 @@ is_transient_pipeline_unreachable() {
 # の形で error/errorDetails を本文に埋め込むことを実測で確認済み）。
 is_transient_busy() {
   local raw="$1"
-  echo "$raw" | grep -qE '"retryable"[[:space:]]*:[[:space:]]*true|"status"[[:space:]]*:[[:space:]]*"busy"|503 Service Unavailable|Server Busy|429 Too Many Requests|Too Many Queued (Commands|Jobs)'
+  echo "$raw" | grep -qE '"retryable"[[:space:]]*:[[:space:]]*true|"status"[[:space:]]*:[[:space:]]*"busy"|503 Service Unavailable|Server Busy|429 Too Many Requests|Too Many Queued (Commands|Jobs)|"code"[[:space:]]*:[[:space:]]*"EDITOR_BUSY"'
 }
 
 # 「コマンドまたは引数が見つからない」応答かどうか。0.9 以降は旧名を "No command named '<名前>' is available. ..."
@@ -65,14 +74,44 @@ is_command_not_found() {
   echo "$raw" | grep -qE 'Command Not Found|No command named|has no parameter --'
 }
 
-# run_unity_cmd_resilient の戻り値が 3（コマンドまたは引数が見つからない）なら、版の組み合わせのずれとして
-# 診断を標準エラーに、生の応答を標準出力に出して exit 3 する（戻らない）。それ以外の戻り値では何もしない。
-# 使い方: exit_on_version_mismatch <戻り値> <応答（標準出力）>
+# 標準出力が unity CLI 側のエラー（接続不能・切断・busy 等）のエンベロープかどうか。
+# CLI 1.0 は CLI 側のエラーだけを {success:false, data:null, errors:[...]} で出し、コマンドの結果には data キーが無い。
+is_cli_error_envelope() {
+  printf '%s' "$1" | jq -e 'type == "object" and .success == false and has("data") and .data == null and (.errors | type) == "array"' >/dev/null 2>&1
+}
+
+# 標準出力が unity CLI 1.0.0-beta.15 以前のエンベロープ（結果を data.result に包む形）かどうか。
+# CLI 1.0 はエンベロープを付けないため、これが見えたら CLI が古い（このプラグインは CLI 1.0 以降が前提）。
+is_legacy_cli_envelope() {
+  printf '%s' "$1" | jq -e 'type == "object" and (.data | type) == "object" and (.data | has("command"))' >/dev/null 2>&1
+}
+
+# 自前コマンドの応答・ステータスが旧版 UPM パッケージ（結果のキーが PascalCase）のものかどうか。
+# プラグインと UPM パッケージは別々に更新されるため、新しいプラグインと古い UPM パッケージの組み合わせを
+# 黙って読み違えず、版のずれとして止めるために使う。
+is_legacy_upm_payload() {
+  printf '%s' "$1" | jq -e 'type == "object" and (has("Summary") or has("Results") or has("RequestId") or ((.results // [])[0] | type == "object" and has("FullName")))' >/dev/null 2>&1
+}
+
+# 戻り値が 3（版の組み合わせのずれ）なら、診断を標準エラーに、生の応答を標準出力に出して exit 3 する（戻らない）。
+# それ以外の戻り値では何もしない。案内文は応答の中身で変える:
+#   旧 CLI のエンベロープ             → unity CLI を上げる
+#   旧版 UPM パッケージの応答         → UPM パッケージを上げる
+#   それ以外（コマンド・引数が無い等） → 3 つの版を揃える
+# 使い方: exit_on_version_mismatch <戻り値> <応答>
 exit_on_version_mismatch() {
   local rc="$1" raw="$2"
   [ "$rc" = "3" ] || return 0
-  echo "unity cmd がコマンドまたは引数を見つけられませんでした。プラグイン・UPMパッケージ（com.warlockreport.unity-cli-test-runner）・com.unity.pipeline の版の組み合わせが揃っていない可能性が高いです。" >&2
-  echo "  リトライでは解消しません。README の「版番号と対応する com.unity.pipeline」の表で、3つの版を揃えてもらってください。" >&2
+  if is_legacy_cli_envelope "$raw"; then
+    echo "unity CLI の応答が古い形式（結果を data.result に包む形）でした。このプラグインは unity CLI 1.0.0 以降の出力形式を前提にしています。" >&2
+    echo "  リトライでは解消しません。unity CLI を 1.0.0 以降に上げてもらってください（unity self-update）。" >&2
+  elif is_legacy_upm_payload "$raw"; then
+    echo "自前コマンドの応答が旧版の形式（キーが PascalCase）でした。プラグインと UPM パッケージの版が揃っていません。" >&2
+    echo "  リトライでは解消しません。UPM パッケージ（com.warlockreport.unity-cli-test-runner）を v1.0.0 以降に上げてもらってください。" >&2
+  else
+    echo "unity cmd がコマンドまたは引数を見つけられませんでした。プラグイン・UPMパッケージ（com.warlockreport.unity-cli-test-runner）・com.unity.pipeline の版の組み合わせが揃っていない可能性が高いです。" >&2
+    echo "  リトライでは解消しません。README の「版番号と対応する com.unity.pipeline」の表で、3つの版を揃えてもらってください。" >&2
+  fi
   report_unity_cmd_failure "$raw"
   echo "$raw"
   exit 3
@@ -126,7 +165,7 @@ is_busy_blocked_by_dialog() {
 is_blocked_by_dialog() {
   local timeout="$1"
   if run_unity_cmd_capture script recompile_status --json --timeout "$timeout" >/dev/null 2>&1; then
-    [ "$(echo "$UNITY_CMD_OUT" | jq -r '.success // empty' 2>/dev/null || true)" = "true" ]
+    printf '%s' "$UNITY_CMD_OUT" | jq -e '.status | type == "string"' >/dev/null 2>&1
     return
   fi
   if is_command_not_found "$UNITY_CMD_DIAG"; then
@@ -135,14 +174,16 @@ is_blocked_by_dialog() {
   return 1
 }
 
-# `unity cmd` を1回実行し、結果を3つのグローバル変数へ入れる。
+# `unity cmd` を1回実行し、結果を4つのグローバル変数へ入れる。
 #   UNITY_CMD_OUT  … 標準出力のみ（jqでパースするのはこちら）
+#   UNITY_CMD_ERR  … 標準エラーのみ（CLI 1.0 では Pipeline 側のエラーの理由がここに平文で出る）
 #   UNITY_CMD_DIAG … 標準出力＋標準エラー（is_transient_failure に渡すのはこちら）
 #   UNITY_CMD_RC   … `unity cmd` 自体の終了コード（失敗時の診断出力に使う）
 # 一時的失敗のメッセージが標準出力・標準エラーのどちらに出るかはCLIの版・失敗種別に依存するため、
 # 判定には両方を結合したものを使い、呼び出し元がパースする値は標準出力だけに保つ。
 # 戻り値は `unity cmd` 自体の終了コード。
 UNITY_CMD_OUT=""
+UNITY_CMD_ERR=""
 UNITY_CMD_DIAG=""
 UNITY_CMD_RC=0
 run_unity_cmd_capture() {
@@ -150,8 +191,9 @@ run_unity_cmd_capture() {
   err_file="$(mktemp)"
   UNITY_CMD_OUT="$(unity cmd "$@" 2>"$err_file")" && rc=0 || rc=$?
   UNITY_CMD_RC="$rc"
+  UNITY_CMD_ERR="$(cat "$err_file")"
   UNITY_CMD_DIAG="${UNITY_CMD_OUT}
-$(cat "$err_file")"
+${UNITY_CMD_ERR}"
   # 改修前の `raw="$(unity cmd ...)"` という形では標準エラーはそのまま端末へ素通りしていた。
   # ここで握り潰すと、標準出力が空で標準エラーにだけ理由が出る失敗（CLIとサーバーの
   # 版不整合などがこの形になる）で「失敗しました」以外の手がかりが消えるため、素通りさせる。
@@ -183,9 +225,14 @@ report_unity_cmd_failure() {
 # 有限のリトライ予算内でリトライし、それ以外の失敗は即座に呼び出し元へ返す。
 # 標準出力に生JSONを出す。終了コード:
 #   0  成功
-#   1  一時的ではない失敗（生JSONは標準出力に出す。呼び出し元で内容を確認すること）
+#   1  一時的ではない失敗（標準出力をそのまま出す。呼び出し元で内容を確認すること）。
+#      unity CLI 1.0 は、失敗したテストを含む test status の完了や、自前コマンドの success:false の結果を
+#      終了コード 6 で返す。そのときも結果は標準出力に出ているので、呼び出し元は 1 でも中身を読んで判断する
+#      （呼び出しは $(...) のサブシェルで行われるため、unity cmd 自体の終了コードは呼び出し元に届かない）
 #   2  一時的失敗のままリトライ予算を使い切った（真のハング、またはユーザー操作待ちのダイアログ）
-#   3  コマンドまたは引数が見つからない（版の組み合わせのずれ。生JSONは標準出力に出す。exit_on_version_mismatch に渡す）
+#   3  版の組み合わせのずれ（コマンドまたは引数が見つからない、または unity CLI が古い）。
+#      標準出力が空なら標準エラーの理由を出す。exit_on_version_mismatch に渡す
+#   4  モーダルダイアログがエディタを塞いでいる（unity CLI の終了コード 18）。リトライしても解消しないので即座に返す
 #
 # 使い方: run_unity_cmd_resilient <timeout秒> <リトライ予算秒> <unity cmdへの引数...>
 run_unity_cmd_resilient() {
@@ -199,11 +246,23 @@ run_unity_cmd_resilient() {
   while true; do
     if run_unity_cmd_capture "$@" --timeout "$timeout"; then
       echo "$UNITY_CMD_OUT"
+      if is_legacy_cli_envelope "$UNITY_CMD_OUT"; then
+        return 3
+      fi
       return 0
     fi
 
-    if is_command_not_found "$UNITY_CMD_DIAG"; then
+    if [ "$UNITY_CMD_RC" = "18" ] || echo "$UNITY_CMD_OUT" | grep -qE '"code"[[:space:]]*:[[:space:]]*"EDITOR_BLOCKED_BY_DIALOG"'; then
       echo "$UNITY_CMD_OUT"
+      return 4
+    fi
+
+    if [ "$UNITY_CMD_RC" = "13" ] || is_command_not_found "$UNITY_CMD_DIAG"; then
+      if [ -n "$(printf '%s' "$UNITY_CMD_OUT" | tr -d '[:space:]')" ]; then
+        echo "$UNITY_CMD_OUT"
+      else
+        echo "$UNITY_CMD_ERR"
+      fi
       return 3
     fi
 
@@ -222,20 +281,18 @@ run_unity_cmd_resilient() {
   done
 }
 
-# `unity cmd ... --json` の生JSONから `.data.result` の中身を取り出し、整形したJSONとして標準出力へ出す。
-# com.unity.pipeline 0.8 以降、script recompile_status / test status などの `*_status` はネイティブなJSONを
-# 返すが、0.7 以前や旧版の本UPMパッケージ（wr.testrunner batch_test_status）は同じ中身をJSON文字列として二重
-# エンコードして返す。プラグインとUPMパッケージは別々に更新されるため、両方の形を受け付ける。
-# 戻り値: 0=取り出せた / 1=取り出せなかった（null・スカラー・パース不能・欠落。何も出力しない）
+# `unity cmd ... --json` の標準出力から結果を取り出し、整形したJSONとして標準出力へ出す。
+# unity CLI 1.0 は結果だけを出す（エンベロープは無い）ので、標準出力全体が JSON のオブジェクトか配列 1 個なら
+# それが結果である。CLI 側のエラーのエンベロープは結果ではないので取り出さない。
+# 戻り値: 0=取り出せた / 1=取り出せなかった（空・null・スカラー・パース不能・CLI のエラー。何も出力しない）
 extract_result_payload() {
   local raw="$1" payload
-  payload="$(echo "$raw" | jq -c '
-    .data.result
-    | if type == "string" then fromjson else . end
-    | if type == "object" or type == "array" then . else error("unexpected result shape") end
+  is_cli_error_envelope "$raw" && return 1
+  payload="$(printf '%s' "$raw" | jq -c -s '
+    if length == 1 and (.[0] | type == "object" or type == "array") then .[0] else error("unexpected result shape") end
   ' 2>/dev/null)" || return 1
   [ -n "$payload" ] || return 1
-  echo "$payload" | jq .
+  printf '%s\n' "$payload" | jq .
 }
 
 # カンマ区切りの値を、各要素の前後の空白を除き、空の要素を捨てて、カンマで連結し直す。
